@@ -147,4 +147,6 @@ Helper code now lives in focused modules under `thought_injector/` so `cli.py` o
 - `text_utils.py` maps textual anchors to tokenizer indices and includes the sweep diff helper.
 - `baseline.py` keeps the default noun/verb lists in one place so experiments and docs can share them.
 
+Validation note: persisted vectors and `InjectionSchedule` definitions are now Pydantic models (`VectorMetadata`, `VectorPayload`, `InjectionSchedule`). Import and extend those instead of rolling your own dicts so custom tooling keeps benefitting from the schema-level checks.
+
 Add new behavior by extending those modules rather than growing `cli.py` back into a monolith.

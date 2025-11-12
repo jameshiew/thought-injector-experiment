@@ -2,12 +2,12 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
 import torch
 import torch.nn as nn
 import typer
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from torch.utils.hooks import RemovableHandle
 from transformers import PreTrainedModel
 
@@ -23,14 +23,21 @@ class LastHiddenStateOutput(Protocol):
 OutputLike = LastHiddenStateOutput | torch.Tensor | tuple[torch.Tensor, ...]
 
 
-@dataclass
-class InjectionSchedule:
+class InjectionSchedule(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
     apply_all: bool = False
-    single_index: int | None = None
+    single_index: int | None = Field(default=None)
     window_start: int | None = None
     window_end: int | None = None
     generated_only: bool = False
-    prompt_length: int | None = None
+    prompt_length: int | None = Field(default=None, ge=0)
+
+    @model_validator(mode="after")
+    def _generated_only_requires_prompt(self) -> InjectionSchedule:
+        if self.generated_only and self.prompt_length is None:
+            raise ValueError("--generated-only requires a known prompt token length.")
+        return self
 
     def has_window(self) -> bool:
         return self.window_start is not None or self.window_end is not None

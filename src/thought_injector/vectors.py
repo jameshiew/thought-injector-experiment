@@ -1,35 +1,78 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import torch
 import typer
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from transformers import PreTrainedModel
 
 from thought_injector.app import console
 
 
+class VectorMetadata(BaseModel):
+    """Structured metadata stored alongside vector tensors."""
+
+    model_config = ConfigDict(extra="allow")
+
+    model_path: str | None = None
+    layer_index: int | None = Field(default=None, ge=0)
+    token_index: int | None = None
+    word: str | None = None
+    baseline_count: int | None = Field(default=None, ge=0)
+    baseline_source: str | None = None
+    prompts: dict[str, Any] | None = None
+
+
+class VectorPayload(BaseModel):
+    """Serialized payload saved to disk via torch.save."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    vector: torch.Tensor
+    metadata: VectorMetadata = Field(default_factory=VectorMetadata)
+
+
 @dataclass
 class VectorRecord:
     vector: torch.Tensor
-    metadata: dict[str, Any]
+    metadata: VectorMetadata
 
 
-def save_vector(path: Path, vector: torch.Tensor, metadata: dict[str, Any]) -> None:
+def save_vector(
+    path: Path, vector: torch.Tensor, metadata: Mapping[str, Any] | VectorMetadata
+) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    payload = {"vector": vector, "metadata": metadata}
-    torch.save(payload, path)
+    try:
+        metadata_model = (
+            metadata
+            if isinstance(metadata, VectorMetadata)
+            else VectorMetadata.model_validate(metadata)
+        )
+    except ValidationError as err:  # pragma: no cover - defensive guard.
+        raise typer.BadParameter(f"Invalid vector metadata: {err}") from err
+
+    payload = VectorPayload(vector=vector, metadata=metadata_model)
+    torch.save(
+        {
+            "vector": payload.vector,
+            "metadata": payload.metadata.model_dump(mode="python"),
+        },
+        path,
+    )
     console.print(f"Saved vector -> {path}")
 
 
 def load_vector(path: Path) -> VectorRecord:
     payload = torch.load(path, map_location="cpu")
-    if "vector" not in payload:
-        raise typer.BadParameter(f"Vector file {path} missing 'vector' key")
-    metadata = payload.get("metadata", {})
-    return VectorRecord(vector=payload["vector"], metadata=metadata)
+    try:
+        validated = VectorPayload.model_validate(payload)
+    except ValidationError as err:
+        raise typer.BadParameter(f"Vector file {path} is invalid: {err}") from err
+    return VectorRecord(vector=validated.vector, metadata=validated.metadata)
 
 
 def broadcast_vector(vector: torch.Tensor, hidden_states: torch.Tensor) -> torch.Tensor:

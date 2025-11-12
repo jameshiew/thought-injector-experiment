@@ -387,7 +387,7 @@ def run(
         record = load_vector(vector_path)
         ensure_vector_matches_model(record.vector, model)
         vector_tensor = prepare_vector(record.vector, normalize, scale_by)
-        metadata_layer = record.metadata.get("layer_index")
+        metadata_layer = record.metadata.layer_index
         if metadata_layer is not None and metadata_layer != layer_index:
             console.print(
                 f"[yellow]Warning:[/yellow] vector recorded from layer {metadata_layer}, but we will inject at layer {layer_index}."
@@ -637,7 +637,7 @@ def inspect_vector(
     """Print metadata for a concept vector."""
 
     record = load_vector(vector_path)
-    console.print(json.dumps(record.metadata, indent=2))
+    console.print(json.dumps(record.metadata.model_dump(mode="json"), indent=2))
     console.print(f"Vector shape: {tuple(record.vector.shape)}")
 
 

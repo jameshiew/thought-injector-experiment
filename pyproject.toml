@@ -7,6 +7,7 @@ requires-python = ">=3.11,<3.12"
 authors = [{ name = "Experimental Agent" }]
 dependencies = [
   "huggingface-hub>=0.34.0,<1.0",
+  "pydantic>=2.12.4,<3.0",
   "rich>=13.7.1",
   "safetensors>=0.4.5",
   "torch>=2.4.0",
