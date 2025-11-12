@@ -3,41 +3,56 @@ from __future__ import annotations
 import csv
 import difflib
 import json
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Annotated, TypedDict
+from typing import Annotated, Any, Protocol, TypedDict, TypeVar, cast
 
 import torch
+import torch.nn as nn
 import transformers.utils as _transformers_utils
 import typer
 from rich.console import Console
-from transformers import AutoModelForCausalLM, AutoTokenizer, GenerationConfig
+from torch.utils.hooks import RemovableHandle
+from transformers import AutoModelForCausalLM, AutoTokenizer, GenerationConfig, PreTrainedModel
 from transformers.cache_utils import DynamicCache
+from transformers.tokenization_utils_base import BatchEncoding, PreTrainedTokenizerBase
 from transformers.utils import ModelOutput
 
 if not hasattr(_transformers_utils, "LossKwargs"):
 
-    class _LossKwargs(TypedDict, total=False):  # type: ignore[misc]
+    class _LossKwargs(TypedDict, total=False):
         """Shim for older transformers builds lacking LossKwargs."""
 
         pass
 
-    _transformers_utils.LossKwargs = _LossKwargs  # type: ignore[attr-defined]
+    cast(Any, _transformers_utils).LossKwargs = _LossKwargs
 
 if not hasattr(DynamicCache, "get_max_length"):
 
-    def _compat_dynamic_cache_max_length(self) -> int:
+    def _compat_dynamic_cache_max_length(self: DynamicCache) -> int:
         # Transformers ≥4.57 swapped `get_max_length` for `get_seq_length`.
         # Provide the former so generation helpers keep working.
-        return self.get_seq_length()
+        return cast(int, self.get_seq_length())
 
-    DynamicCache.get_max_length = _compat_dynamic_cache_max_length  # type: ignore[assignment]
+    cast(Any, DynamicCache).get_max_length = _compat_dynamic_cache_max_length
 
 console = Console()
 app = typer.Typer(help="Local concept-injection experiments for safetensors-based LMs.")
+FuncT = TypeVar("FuncT", bound=Callable[..., Any])
 
-DTYPE_MAP = {
+
+def typed_command(*args: Any, **kwargs: Any) -> Callable[[FuncT], FuncT]:
+    decorator = app.command(*args, **kwargs)
+
+    def _wrapper(func: FuncT) -> FuncT:
+        return cast(FuncT, decorator(func))
+
+    return _wrapper
+
+
+DTYPE_MAP: dict[str, torch.dtype] = {
     "float16": torch.float16,
     "bfloat16": torch.bfloat16,
     "float32": torch.float32,
@@ -279,7 +294,7 @@ def _gpu_supports_bfloat16() -> bool:
             return False
 
     try:
-        capability = torch.cuda.get_device_capability()
+        capability = cast(tuple[int, int], torch.cuda.get_device_capability())
     except RuntimeError:
         return False
     # Ampere (sm80) or newer GPUs provide native bfloat16 support.
@@ -290,6 +305,12 @@ def _gpu_supports_bfloat16() -> bool:
 class VectorRecord:
     vector: torch.Tensor
     metadata: dict[str, object]
+
+
+class LayerSequence(Protocol):
+    def __len__(self) -> int: ...
+
+    def __getitem__(self, index: int) -> nn.Module: ...
 
 
 def _resolve_dtype(name: str) -> torch.dtype:
@@ -310,30 +331,38 @@ def _resolve_device(name: str) -> torch.device:
     return torch.device(name)
 
 
-def _load_model_and_tokenizer(model_path: Path, dtype: torch.dtype, device: torch.device):
+def _load_model_and_tokenizer(
+    model_path: Path, dtype: torch.dtype, device: torch.device
+) -> tuple[PreTrainedModel, PreTrainedTokenizerBase]:
     console.print(f"Loading model from {model_path} (dtype={dtype}, device={device}) ...")
-    model = AutoModelForCausalLM.from_pretrained(
-        model_path,
-        dtype=dtype,
-        trust_remote_code=True,
-        local_files_only=True,
+    model = cast(
+        PreTrainedModel,
+        AutoModelForCausalLM.from_pretrained(
+            model_path,
+            dtype=dtype,
+            trust_remote_code=True,
+            local_files_only=True,
+        ),
     )
     model.to(device)
     model.eval()
-    tokenizer = AutoTokenizer.from_pretrained(model_path, use_fast=True, local_files_only=True)
+    tokenizer = cast(
+        PreTrainedTokenizerBase,
+        AutoTokenizer.from_pretrained(model_path, use_fast=True, local_files_only=True),
+    )
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     return model, tokenizer
 
 
-def _requires_cache_disabled(model) -> bool:
+def _requires_cache_disabled(model: PreTrainedModel) -> bool:
     """Certain remote-code models mis-handle DynamicCache; fall back to full-seq mode."""
 
     model_type = getattr(getattr(model, "config", None), "model_type", None)
     return model_type in {"pharia", "pharia-v1", "pharia_v1"}
 
 
-def _get_decoder_layers(model):
+def _get_decoder_layers(model: PreTrainedModel) -> LayerSequence:
     candidates = ["model", "transformer", "base_model", "decoder"]
     for attr in candidates:
         sub = getattr(model, attr, None)
@@ -342,13 +371,13 @@ def _get_decoder_layers(model):
         for layer_attr in ("layers", "h"):
             layers = getattr(sub, layer_attr, None)
             if layers is not None:
-                return layers
+                return cast(LayerSequence, layers)
     raise RuntimeError(
         "Could not locate decoder layers. This implementation currently supports Llama-style models."
     )
 
 
-def _resolve_layer(model, layer_index: int):
+def _resolve_layer(model: PreTrainedModel, layer_index: int) -> nn.Module:
     layers = _get_decoder_layers(model)
     if layer_index < 0 or layer_index >= len(layers):
         raise typer.BadParameter(
@@ -357,23 +386,37 @@ def _resolve_layer(model, layer_index: int):
     return layers[layer_index]
 
 
-def _tokenize(tokenizer, prompt: str, device: torch.device):
-    encoded = tokenizer(prompt, return_tensors="pt")
+def _tokenize(
+    tokenizer: PreTrainedTokenizerBase, prompt: str, device: torch.device
+) -> dict[str, torch.Tensor]:
+    encoded: BatchEncoding = tokenizer(prompt, return_tensors="pt")
     encoded.pop("token_type_ids", None)  # Decoder-only models typically reject this field.
     mask = encoded.get("attention_mask")
     if mask is not None and torch.count_nonzero(mask != 1) == 0:
         # Drop no-op masks; some HF builds mis-handle cache lengths when we pass all-ones masks.
         encoded.pop("attention_mask", None)
-    return {k: v.to(device) for k, v in encoded.items()}
+    return {k: cast(torch.Tensor, v).to(device) for k, v in encoded.items()}
 
 
 def _extract_hidden_state(
-    model, tokenizer, prompt: str, layer_index: int, token_index: int, device: torch.device
-):
+    model: PreTrainedModel,
+    tokenizer: PreTrainedTokenizerBase,
+    prompt: str,
+    layer_index: int,
+    token_index: int,
+    device: torch.device,
+) -> torch.Tensor:
     inputs = _tokenize(tokenizer, prompt, device)
     with torch.no_grad():
-        outputs = model(**inputs, output_hidden_states=True, use_cache=False)
+        outputs = cast(
+            ModelOutput,
+            model(**inputs, output_hidden_states=True, use_cache=False),
+        )
     hidden_states = outputs.hidden_states
+    if hidden_states is None:
+        raise RuntimeError(
+            "Model did not return hidden states; enable output_hidden_states support."
+        )
     if layer_index >= model.config.num_hidden_layers:
         raise typer.BadParameter(
             f"layer-index {layer_index} exceeds num_hidden_layers={model.config.num_hidden_layers}"
@@ -391,7 +434,7 @@ def _resolve_token_index(index: int, seq_len: int) -> int:
     return index
 
 
-def _save_vector(path: Path, vector: torch.Tensor, metadata: dict[str, object]):
+def _save_vector(path: Path, vector: torch.Tensor, metadata: dict[str, object]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {"vector": vector, "metadata": metadata}
     torch.save(payload, path)
@@ -449,7 +492,7 @@ def _locate_start_match(prompt: str, match: str) -> int:
     return newline_index if newline_index != -1 else match_index
 
 
-def _token_index_from_char(tokenizer, prompt: str, char_index: int) -> int:
+def _token_index_from_char(tokenizer: PreTrainedTokenizerBase, prompt: str, char_index: int) -> int:
     encoding = tokenizer(
         prompt,
         add_special_tokens=True,
@@ -470,7 +513,9 @@ def _token_index_from_char(tokenizer, prompt: str, char_index: int) -> int:
     )
 
 
-def _resolve_start_match_token_index(tokenizer, prompt: str, match: str) -> int:
+def _resolve_start_match_token_index(
+    tokenizer: PreTrainedTokenizerBase, prompt: str, match: str
+) -> int:
     anchor_char = _locate_start_match(prompt, match)
     return _token_index_from_char(tokenizer, prompt, anchor_char)
 
@@ -490,7 +535,7 @@ def _apply_injection(
     vector: torch.Tensor,
     strength: float,
     schedule: InjectionSchedule,
-):
+) -> torch.Tensor:
     mask = schedule.resolve_mask(hidden_states.shape[1], hidden_states.device)
     if not torch.any(mask):
         return hidden_states
@@ -500,7 +545,10 @@ def _apply_injection(
     return hidden_states
 
 
-def _remix_output(output, mutate_fn):
+def _remix_output(
+    output: ModelOutput | torch.Tensor | tuple[torch.Tensor, ...],
+    mutate_fn: Callable[[torch.Tensor], torch.Tensor],
+) -> ModelOutput | torch.Tensor | tuple[torch.Tensor, ...]:
     if isinstance(output, torch.Tensor):
         return mutate_fn(output)
     if isinstance(output, tuple):
@@ -516,15 +564,19 @@ def _remix_output(output, mutate_fn):
 
 
 def _register_injection(
-    model,
+    model: PreTrainedModel,
     layer_index: int,
     vector: torch.Tensor,
     strength: float,
     schedule: InjectionSchedule,
-):
+) -> RemovableHandle:
     layer = _resolve_layer(model, layer_index)
 
-    def hook(module, inputs, output):  # pylint: disable=unused-argument
+    def hook(
+        module: nn.Module,  # pylint: disable=unused-argument
+        inputs: tuple[torch.Tensor, ...],
+        output: ModelOutput | torch.Tensor | tuple[torch.Tensor, ...],
+    ) -> ModelOutput | torch.Tensor | tuple[torch.Tensor, ...]:
         return _remix_output(
             output,
             lambda hidden: _apply_injection(hidden, vector, strength, schedule),
@@ -535,12 +587,12 @@ def _register_injection(
 
 @contextmanager
 def injection_context(
-    model,
+    model: PreTrainedModel,
     layer_index: int,
     vector: torch.Tensor,
     strength: float,
     schedule: InjectionSchedule,
-):
+) -> Iterator[None]:
     handle = _register_injection(model, layer_index, vector, strength, schedule)
     try:
         yield
@@ -548,7 +600,7 @@ def injection_context(
         handle.remove()
 
 
-def _ensure_vector_matches_model(vector: torch.Tensor, model):
+def _ensure_vector_matches_model(vector: torch.Tensor, model: PreTrainedModel) -> None:
     hidden_size = model.config.hidden_size
     if vector.shape[-1] != hidden_size:
         raise typer.BadParameter(
@@ -556,7 +608,7 @@ def _ensure_vector_matches_model(vector: torch.Tensor, model):
         )
 
 
-@app.command()
+@typed_command()
 def capture(
     model_path: Annotated[
         Path,
@@ -593,7 +645,7 @@ def capture(
         str,
         typer.Option(help="Device identifier or 'auto'."),
     ] = "auto",
-):
+) -> None:
     """Capture a concept vector by differencing two prompts."""
 
     torch_dtype = _resolve_dtype(dtype)
@@ -618,7 +670,7 @@ def capture(
     _save_vector(output_path, vector, metadata)
 
 
-@app.command()
+@typed_command()
 def capture_word(
     model_path: Annotated[
         Path,
@@ -658,7 +710,7 @@ def capture_word(
         str,
         typer.Option(help="Device identifier or 'auto'."),
     ] = "auto",
-):
+) -> None:
     """Capture a concept vector by subtracting a baseline mean from a target word."""
 
     if baseline_count <= 0:
@@ -710,7 +762,7 @@ def capture_word(
     console.print(f"Vector RMS: {rms:.6f}")
 
 
-@app.command()
+@typed_command()
 def run(
     model_path: Annotated[
         Path,
@@ -798,7 +850,7 @@ def run(
         bool,
         typer.Option(help="Return the full decoded sequence (prompt + continuation)."),
     ] = False,
-):
+) -> None:
     """Run the prompt with optional activation injection."""
 
     if seed is not None:
@@ -869,7 +921,7 @@ def run(
             handle.remove()
 
 
-@app.command()
+@typed_command()
 def sweep(
     model_path: Annotated[
         Path,
@@ -957,7 +1009,7 @@ def sweep(
         Path,
         typer.Option(help="CSV destination for sweep results."),
     ] = Path("sweeps/latest.csv"),
-):
+) -> None:
     """Sweep layer/strength combinations and log outputs to CSV."""
 
     if seed is not None:
@@ -1021,7 +1073,8 @@ def sweep(
                 generation_config=generation_config,
                 use_cache=not disable_cache,
             )
-        return tokenizer.decode(output_ids[0], skip_special_tokens=not include_prompt)
+        decoded = tokenizer.decode(output_ids[0], skip_special_tokens=not include_prompt)
+        return cast(str, decoded)
 
     baseline_text = _generate_text(layer_idx=None, strength_value=None)
 
@@ -1060,10 +1113,10 @@ def sweep(
     console.print(f"Sweep complete -> {output_path}")
 
 
-@app.command()
+@typed_command()
 def inspect_vector(
     vector_path: Annotated[Path, typer.Argument(..., help="Path to a saved vector.")],
-):
+) -> None:
     """Print metadata for a concept vector."""
 
     record = _load_vector(vector_path)
