@@ -304,7 +304,7 @@ def _load_model_and_tokenizer(model_path: Path, dtype: torch.dtype, device: torc
     console.print(f"Loading model from {model_path} (dtype={dtype}, device={device}) ...")
     model = AutoModelForCausalLM.from_pretrained(
         model_path,
-        torch_dtype=dtype,
+        dtype=dtype,
         trust_remote_code=True,
         local_files_only=True,
     )
