@@ -20,6 +20,6 @@
 # 2025-11-12 - pharia-1-control (paper-style capture + working injection)
 
 - Used the new `capture-word` subcommand to record `vectors/aquariums_word_pharia.pt`, `vectors/deserts_word_pharia.pt`, and `vectors/forests_word_pharia.pt` at layer 20, token -1 with the 100-word default baseline list. Vector RMS values land in the 0.18–0.30 range, and `inspect-vector` shows the prompts + metadata we expect.
-- Confirmed the Typer option fix (module-level singletons) so `just check` stays clean while supporting repeated `--layer-index/--strength` flags in the sweep harness.
+- Confirmed the Typer option fix (module-level singletons) so `just lint` stays clean while supporting repeated `--layer-index/--strength` flags in the sweep harness.
 - Baseline sanity run (strength 0.0, `--start-match "Trial 1:"`, `--vector-path vectors/aquariums_word_pharia.pt`) produced the neutral “Trial countdown with apple/banana/tree answers” transcript stored in `baseline_output.txt`.
 - Re-running with `--strength 0.8` (same prompt/vector/layer, auto bf16) yielded an immediate “You have aquariums. Aquariums are where they keep their tanks.” response on Trial 1, demonstrating a clean injection-driven behavior change without collapse. Transcript saved as `injection_output.txt` for future diffing.

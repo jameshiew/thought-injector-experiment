@@ -27,6 +27,22 @@ class CharTokenizer:
         return FakeEncoding(data)
 
 
+class ZeroWidthTokenizer:
+    def __call__(
+        self,
+        prompt: str,
+        add_special_tokens: bool = True,
+        return_offsets_mapping: bool = False,
+    ) -> FakeEncoding:
+        printable_offsets = [(idx, idx + 1) for idx in range(len(prompt))]
+        offsets = [(0, 0), (0, 0), *printable_offsets]
+        token_ids = list(range(len(offsets)))
+        data: dict[str, object] = {"input_ids": [token_ids]}
+        if return_offsets_mapping:
+            data["offset_mapping"] = [offsets]
+        return FakeEncoding(data)
+
+
 PROMPT = """System prompt\nTrial 1:\nAssistant: turn 1\nTrial 2:\nAssistant: turn 2\n"""
 
 
@@ -65,3 +81,18 @@ def test_end_match_anchor_maps_to_last_token_without_trailing_newline() -> None:
     anchor = spans.locate_end_anchor(prompt, "Assistant: done", 1)
     token_index = token_index_from_char(tokenizer, prompt, anchor)
     assert token_index == len(prompt) - 1
+
+
+def test_token_index_from_char_skips_leading_zero_width_offsets() -> None:
+    prompt = "Hello"
+    tokenizer = ZeroWidthTokenizer()
+    index = token_index_from_char(tokenizer, prompt, 0)
+    assert index == 2  # two zero-width tokens precede the first printable token
+
+
+def test_token_index_from_char_handles_end_anchor_with_zero_width_offsets() -> None:
+    prompt = "abc"
+    tokenizer = ZeroWidthTokenizer()
+    anchor = len(prompt)
+    index = token_index_from_char(tokenizer, prompt, anchor)
+    assert index == len(prompt) + 1  # last printable token index (with two zero-width tokens)

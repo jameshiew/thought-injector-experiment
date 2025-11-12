@@ -134,6 +134,7 @@ uv run thought-injector inspect-vector vectors/aquariums_word_pharia.pt
 - To sanity-check window math, run with your `--start-match`/`--end-match` anchors (or explicit indices) plus `--strength 0.0`; the output should match the baseline exactly. Any divergence means the mask is off.
 - Prefer `--include-prompt` only when you explicitly need the prefixed text; otherwise skip special tokens for easier diffing.
 - The hook finder assumes Llama-style decoder stacks (exposed as `model.layers` or `model.transformer.h`). Extending `_get_decoder_layers` is enough to support new architectures.
+- Set `TI_DEBUG_STRICT=1` (or any truthy value) to assert that the hooked residual stream tensors stay shape `[batch, tokens, hidden]` and that the hidden width matches your concept vector before every injection.
 - Keep a copy of at least one successful injection transcript (e.g., `injection_output.txt`) so you can confirm future code changes still recreate the same “aquariums” bias without retuning hyperparameters.
 
 ## Development
@@ -153,4 +154,4 @@ Add new behavior by extending those modules rather than growing `cli.py` back in
 
 ### Type checking
 
-Run `just check` before committing to satisfy both Ruff and BasedPyright. Hugging Face helpers frequently return `Any`, so convert `BatchEncoding` payloads to plain `dict[str, torch.Tensor]` and `cast` tokenizer attributes/methods (e.g., `.decode`, `.pad_token_id`) to keep the static analyzer happy.
+Run `just lint` before committing—it covers Ruff + BasedPyright in one shot. Follow it with `just test` so both style and correctness stay green. Hugging Face helpers frequently return `Any`, so convert `BatchEncoding` payloads to plain `dict[str, torch.Tensor]` and `cast` tokenizer attributes/methods (e.g., `.decode`, `.pad_token_id`) to keep the static analyzer happy.

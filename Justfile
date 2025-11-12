@@ -12,3 +12,7 @@ dep-check:
 
 test:
     uv run pytest
+
+check:
+    just lint
+    just test

@@ -45,3 +45,10 @@ def test_remix_output_handles_dict_hidden_states() -> None:
     payload = {"hidden_states": (first.clone(),)}
     remixed = _remix_output(payload, _increment)
     assert torch.equal(remixed["hidden_states"][0], torch.ones_like(first))
+
+
+def test_remix_output_handles_dict_last_hidden_state() -> None:
+    tensor = torch.zeros(1, 1, 2)
+    payload = {"last_hidden_state": tensor.clone()}
+    remixed = _remix_output(payload, _increment)
+    assert torch.equal(remixed["last_hidden_state"], torch.ones_like(tensor))

@@ -72,14 +72,22 @@ def token_index_from_char(tokenizer: PreTrainedTokenizerBase, prompt: str, char_
             offsets_seq = candidate_offsets
 
     if offsets_seq is not None:
+        saw_non_zero = False
+        last_non_zero_index: int | None = None
         for idx, (start, end) in enumerate(offsets_seq):
+            if end <= start:
+                continue
+            saw_non_zero = True
+            last_non_zero_index = idx
             if start <= char_index < end:
                 return idx
-        if char_index >= len(prompt):
-            return len(offsets_seq) - 1
-        raise typer.BadParameter(
-            "Could not map character offset to a tokenizer index; check --start-match anchor."
-        )
+        if saw_non_zero:
+            if char_index >= len(prompt) and last_non_zero_index is not None:
+                return last_non_zero_index
+            raise typer.BadParameter(
+                "Could not map character offset to a tokenizer index; check --start-match anchor."
+            )
+        offsets_seq = None
 
     prefix_end = min(char_index + 1, len(prompt))
     prefix = prompt[:prefix_end]

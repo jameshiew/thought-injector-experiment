@@ -210,6 +210,10 @@ def capture_word(
             model, tokenizer, base_prompt, layer_index, token_index, torch_device
         )
         baseline_vectors.append(hidden)
+    if not baseline_vectors:
+        raise typer.BadParameter(
+            "Cannot compute baseline mean; no baseline vectors were collected."
+        )
     baseline_mean = torch.stack(baseline_vectors).mean(dim=0)
 
     vector = (target_hidden - baseline_mean).to(torch.float32)

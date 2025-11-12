@@ -114,15 +114,27 @@ def requires_cache_disabled(model: PreTrainedModel) -> bool:
 
 
 def get_decoder_layers(model: PreTrainedModel) -> LayerSequence:
+    def _maybe_layers(container: Any) -> LayerSequence | None:
+        for layer_attr in ("layers", "h"):
+            found = getattr(container, layer_attr, None)
+            if found is not None:
+                return cast(LayerSequence, found)
+        nested = getattr(container, "model", None)
+        if nested is not None:
+            for layer_attr in ("layers", "h"):
+                found = getattr(nested, layer_attr, None)
+                if found is not None:
+                    return cast(LayerSequence, found)
+        return None
+
     candidates = ["model", "transformer", "base_model", "decoder"]
     for attr in candidates:
         sub = getattr(model, attr, None)
         if sub is None:
             continue
-        for layer_attr in ("layers", "h"):
-            layers = getattr(sub, layer_attr, None)
-            if layers is not None:
-                return cast(LayerSequence, layers)
+        layers = _maybe_layers(sub)
+        if layers is not None:
+            return layers
     raise RuntimeError(
         "Could not locate decoder layers. This implementation currently supports Llama-style models."
     )
@@ -145,9 +157,6 @@ def tokenize(
     tensors: dict[str, torch.Tensor] = dict(encoded_data)
 
     tensors.pop("token_type_ids", None)
-    mask = tensors.get("attention_mask")
-    if mask is not None and torch.count_nonzero(mask != 1) == 0:
-        tensors.pop("attention_mask", None)
     return {k: v.to(device) for k, v in tensors.items()}
 
 

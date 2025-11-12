@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from collections.abc import Callable, Iterator, MutableMapping
 from contextlib import contextmanager
 from typing import Any, Protocol, cast, runtime_checkable
@@ -13,6 +14,17 @@ from transformers import PreTrainedModel
 
 from thought_injector.models import resolve_layer, resolve_token_index
 from thought_injector.vectors import broadcast_vector
+
+
+def _ti_debug_strict_enabled() -> bool:
+    flag = os.getenv("TI_DEBUG_STRICT")
+    if flag is None:
+        return False
+    normalized = flag.strip().lower()
+    return normalized not in {"", "0", "false", "no"}
+
+
+TI_DEBUG_STRICT = _ti_debug_strict_enabled()
 
 
 @runtime_checkable
@@ -128,6 +140,8 @@ def apply_injection(
     strength: float,
     schedule: InjectionSchedule,
 ) -> torch.Tensor:
+    if TI_DEBUG_STRICT:
+        _assert_residual_shape(hidden_states, vector)
     mask = schedule.resolve_mask(hidden_states.shape[1], hidden_states.device)
     if not torch.any(mask):
         return hidden_states
@@ -135,6 +149,18 @@ def apply_injection(
     hidden_states = hidden_states.clone()
     hidden_states[:, mask, :] += vector
     return hidden_states
+
+
+def _assert_residual_shape(hidden_states: torch.Tensor, vector: torch.Tensor) -> None:
+    if hidden_states.ndim != 3:
+        raise RuntimeError(
+            "TI_DEBUG_STRICT=1: expected residual stream tensor with shape [B, T, H]."
+        )
+    if vector.ndim == 0:
+        raise RuntimeError("TI_DEBUG_STRICT=1: vector must have at least one dimension.")
+    expected_width = vector.shape[-1]
+    if hidden_states.shape[-1] != expected_width:
+        raise RuntimeError("TI_DEBUG_STRICT=1: hidden state width does not match vector length.")
 
 
 def _remix_output(
@@ -160,8 +186,15 @@ def _remix_output(
     if isinstance(hidden_states_attr, torch.Tensor):
         cast(Any, output).hidden_states = mutate_fn(hidden_states_attr)
         return output  # pragma: no cover
-    if isinstance(output, dict) and "hidden_states" in output:
+    if isinstance(output, dict):
         mapping = cast(MutableMapping[str, Any], output)
+        if "last_hidden_state" in mapping:
+            lhs_value = mapping["last_hidden_state"]
+            if isinstance(lhs_value, torch.Tensor):
+                mapping["last_hidden_state"] = mutate_fn(lhs_value)
+                return output
+        if "hidden_states" not in mapping:
+            return output
         hs_value = mapping["hidden_states"]
         if isinstance(hs_value, tuple) and hs_value:
             hs_tuple = cast(tuple[torch.Tensor, ...], hs_value)
