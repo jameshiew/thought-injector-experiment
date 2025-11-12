@@ -17,6 +17,7 @@ from thought_injector.injection import InjectionSchedule, injection_context
 from thought_injector.models import (
     clone_inputs,
     extract_hidden_state,
+    get_decoder_layers,
     load_model_and_tokenizer,
     requires_cache_disabled,
     resolve_device,
@@ -250,9 +251,9 @@ def run(
         typer.Option(help="Layer to inject into."),
     ] = 0,
     token_index: Annotated[
-        int,
-        typer.Option(help="Token index for injection."),
-    ] = -1,
+        int | None,
+        typer.Option(help="Token index for injection (omit for default behavior)."),
+    ] = None,
     start_index: Annotated[
         int | None,
         typer.Option(help="Optional start index (inclusive) for windowed injection."),
@@ -414,8 +415,11 @@ def run(
         vector_tensor = prepare_vector(record.vector, normalize, scale_by)
         metadata_layer = record.metadata.layer_index
         if metadata_layer is not None and metadata_layer != layer_index:
+            total_layers = len(get_decoder_layers(model))
             console.print(
-                f"[yellow]Warning:[/yellow] vector recorded from layer {metadata_layer}, but we will inject at layer {layer_index}."
+                "[yellow]Warning:[/yellow] vector recorded from layer "
+                f"{metadata_layer}, but we will inject at layer {layer_index} "
+                f"(model has {total_layers} layers)."
             )
 
     disable_cache = vector_tensor is not None and schedule.requires_full_sequence()
@@ -458,9 +462,9 @@ def sweep(
     layer_indices: list[int] = SWEEP_LAYER_OPTION,
     strengths: list[float] = SWEEP_STRENGTH_OPTION,
     token_index: Annotated[
-        int,
-        typer.Option(help="Token index for single-token injection."),
-    ] = -1,
+        int | None,
+        typer.Option(help="Token index for single-token injection (omit for default behavior)."),
+    ] = None,
     start_index: Annotated[
         int | None,
         typer.Option(help="Optional start index (inclusive) for windowed injection."),

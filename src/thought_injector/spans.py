@@ -37,5 +37,5 @@ def locate_end_anchor(prompt: str, match: str, occurrence: int) -> int:
     if newline_index == -1:
         if not prompt:
             raise AnchorError("--end-match requires a non-empty prompt.")
-        return len(prompt) - 1
+        return len(prompt)
     return newline_index

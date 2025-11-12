@@ -94,7 +94,7 @@ Key switches:
 
 - `--start-match` / `--end-match` find the newline before/after your anchor string (even for the Nth occurrence via `--start-occurrence` / `--end-occurrence`) so you can window Trial-by-Trial sections without counting tokens. Supplying just `--start-match` keeps the window open through the last generated token; add `--end-match` to clamp the span earlier or fall back to `--start_index/--end_index` for raw token math.
 - `--verbose` prints the resolved token span before sampling so you can sanity-check your anchors (pair it with `--strength 0.0` to confirm the mask is inert).
-- `--generated_only` restricts the injection to tokens beyond the prompt; useful when you only want to steer newly sampled text.
+- `--generated_only` restricts the injection to tokens beyond the prompt. If you omit `--token-index` (and don’t set a window), the entire generated suffix is steered; pass `--token-index -1` to focus on only the newest token. Keep `--apply-all-tokens` for whole-sequence steering.
 - `--normalize/--scale-by` default to unit RMS + `scale-by=1.0`, which keeps strengths in a friendly `0.3–1.2` range. Set `--no-normalize` if you want raw vector magnitudes.
 - `--apply-all-tokens` still works for coarse steering, but windowed spans are usually more stable.
 

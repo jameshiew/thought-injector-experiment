@@ -178,9 +178,11 @@ def extract_hidden_state(
         raise RuntimeError(
             "Model did not return hidden states; enable output_hidden_states support."
         )
-    if layer_index >= model.config.num_hidden_layers:
+    config_layers = getattr(getattr(model, "config", object()), "num_hidden_layers", None)
+    num_layers = int(config_layers) if config_layers is not None else len(get_decoder_layers(model))
+    if layer_index >= num_layers:
         raise typer.BadParameter(
-            f"layer-index {layer_index} exceeds num_hidden_layers={model.config.num_hidden_layers}"
+            f"layer-index {layer_index} exceeds available layers ({num_layers})."
         )
     layer_hidden = hidden_states[layer_index + 1]
     resolved_index = resolve_token_index(token_index, layer_hidden.shape[1])

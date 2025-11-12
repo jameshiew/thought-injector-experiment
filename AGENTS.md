@@ -13,3 +13,4 @@
 - CLI internals now live in helper modules (`app.py`, `models.py`, `vectors.py`, `injection.py`, `text_utils.py`, `baseline.py`); import from those instead of re-implementing utilities in `cli.py`.
 - Vector serialization + injection scheduling use Pydantic (`VectorMetadata`, `VectorPayload`, `InjectionSchedule`). Always go through these helpers (and `save_vector`) so validation stays consistent.
 - BasedPyright is strict about `Unknown` types; cast Hugging Face objects (e.g., `AutoModelForCausalLM`, `BatchEncoding.data`, tokenizer `.decode`/`.pad_token_id`) to concrete types before mutating them or passing to torch helpers.
+- `--token-index` is optional now; leaving it unset (especially with `--generated-only`) targets the entire generated suffix, while explicitly passing `-1` limits injection to the most recent token.

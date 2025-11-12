@@ -97,6 +97,10 @@ def prepare_vector(vector: torch.Tensor, normalize: bool, scale_by: float) -> to
 
 def ensure_vector_matches_model(vector: torch.Tensor, model: PreTrainedModel) -> None:
     hidden_size = model.config.hidden_size
+    if vector.ndim != 1:
+        raise typer.BadParameter(
+            f"Vector must be 1-D of length hidden_size; got shape {tuple(vector.shape)}."
+        )
     if vector.shape[-1] != hidden_size:
         raise typer.BadParameter(
             f"Vector hidden size {vector.shape[-1]} != model hidden size {hidden_size}."

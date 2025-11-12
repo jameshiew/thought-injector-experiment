@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import difflib
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any, cast
 
 import torch
@@ -42,10 +42,16 @@ def token_index_from_char(tokenizer: PreTrainedTokenizerBase, prompt: str, char_
         add_special_tokens=True,
         return_offsets_mapping=True,
     )
-    encoding_data = cast(dict[str, Any], getattr(encoding, "data", dict(encoding)))
+    encoding_map = cast(Mapping[str, Any], encoding)
     offsets = cast(
-        torch.Tensor | list[Any] | tuple[Any, ...] | None, encoding_data.get("offset_mapping")
+        torch.Tensor | list[Any] | tuple[Any, ...] | None,
+        encoding_map.get("offset_mapping"),
     )
+    if offsets is None:
+        encoding_data = cast(dict[str, Any], getattr(encoding, "data", dict(encoding)))
+        offsets = cast(
+            torch.Tensor | list[Any] | tuple[Any, ...] | None, encoding_data.get("offset_mapping")
+        )
     offsets_seq: list[tuple[int, int]] | None = None
     if offsets is not None:
         flattened_offsets = flatten_first_sequence(offsets)

@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import torch
 import typer
 
-from thought_injector.vectors import load_vector, save_vector
+from thought_injector.vectors import ensure_vector_matches_model, load_vector, save_vector
 
 
 def test_save_and_load_vector_round_trip(tmp_path: Path) -> None:
@@ -33,3 +34,11 @@ def test_save_vector_rejects_invalid_metadata(tmp_path: Path) -> None:
 
     with pytest.raises(typer.BadParameter):
         save_vector(path, vector, {"layer_index": -4})
+
+
+def test_ensure_vector_matches_model_rejects_non_1d_vectors() -> None:
+    model = SimpleNamespace(config=SimpleNamespace(hidden_size=4))
+    vector = torch.zeros(2, 4)
+
+    with pytest.raises(typer.BadParameter):
+        ensure_vector_matches_model(vector, model)

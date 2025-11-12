@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, MutableMapping
 from contextlib import contextmanager
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, cast, runtime_checkable
 
 import torch
 import torch.nn as nn
@@ -147,10 +147,29 @@ def _remix_output(
         mutated = mutate_fn(output[0])
         return (mutated, *output[1:])
     hidden = getattr(output, "last_hidden_state", None)
-    if hidden is None:
+    if hidden is not None:
+        output.last_hidden_state = mutate_fn(hidden)
+        return output  # pragma: no cover
+    hidden_states_attr = getattr(output, "hidden_states", None)
+    if isinstance(hidden_states_attr, tuple):
+        typed_hidden_states = cast(tuple[torch.Tensor, ...], hidden_states_attr)
+        if typed_hidden_states:
+            mutated_tuple = (mutate_fn(typed_hidden_states[0]), *typed_hidden_states[1:])
+            cast(Any, output).hidden_states = mutated_tuple
+        return output  # pragma: no cover
+    if isinstance(hidden_states_attr, torch.Tensor):
+        cast(Any, output).hidden_states = mutate_fn(hidden_states_attr)
+        return output  # pragma: no cover
+    if isinstance(output, dict) and "hidden_states" in output:
+        mapping = cast(MutableMapping[str, Any], output)
+        hs_value = mapping["hidden_states"]
+        if isinstance(hs_value, tuple) and hs_value:
+            hs_tuple = cast(tuple[torch.Tensor, ...], hs_value)
+            mapping["hidden_states"] = (mutate_fn(hs_tuple[0]), *hs_tuple[1:])
+        elif isinstance(hs_value, torch.Tensor):
+            mapping["hidden_states"] = mutate_fn(hs_value)
         return output
-    output.last_hidden_state = mutate_fn(hidden)
-    return output  # pragma: no cover
+    return output
 
 
 def register_injection(
