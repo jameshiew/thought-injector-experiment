@@ -19,3 +19,24 @@ thought-injector = "thought_injector.cli:app"
 
 [tool.uv]
 package = true
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+indent-width = 4
+extend-exclude = ["models", "vectors", "__pycache__"]
+# enforce modern Python
+lint.select = [
+    "E", "F", "W",  # flake8 core
+    "I",            # import sorting (isort)
+    "UP",           # pyupgrade
+    "N",            # pep8-naming
+    "B",            # bugbear
+    "C4",           # comprehensions
+    "SIM",          # simplify
+    "RUF",          # ruff-specific improvements
+]
+lint.ignore = [
+    "E501",  # line length handled by formatter
+]
+
