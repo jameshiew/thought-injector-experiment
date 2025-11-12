@@ -11,6 +11,7 @@ import time
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TypedDict
 
 from huggingface_hub import HfApi
 from huggingface_hub.errors import HfHubHTTPError
@@ -25,7 +26,12 @@ class FileSpec:
     sha256: str | None
 
 
-STATIC_SPECS = {
+class StaticSpec(TypedDict):
+    repo_id: str
+    files: tuple[FileSpec, ...] | None
+
+
+STATIC_SPECS: dict[str, StaticSpec] = {
     "pharia-1-control": {
         "repo_id": "Aleph-Alpha/Pharia-1-LLM-7B-control-hf",
         "files": None,  # Enumerated dynamically; repo is fully public.
@@ -89,9 +95,10 @@ def sha256sum(path: Path) -> str:
 
 
 def resolve_specs(repo_key: str, token: str | None) -> tuple[FileSpec, ...]:
-    config = STATIC_SPECS[repo_key]
-    if config["files"] is not None:
-        return config["files"]  # type: ignore[return-value]
+    config: StaticSpec = STATIC_SPECS[repo_key]
+    files = config["files"]
+    if files is not None:
+        return files
 
     api = HfApi(token=token)
     try:
@@ -103,8 +110,14 @@ def resolve_specs(repo_key: str, token: str | None) -> tuple[FileSpec, ...]:
             ) from err
         raise
 
+    siblings = repo.siblings
+    if siblings is None:
+        raise SystemExit(
+            "Hugging Face did not return file metadata; provide a token via HF_TOKEN or --token."
+        )
+
     specs: list[FileSpec] = []
-    for sibling in repo.siblings:
+    for sibling in siblings:
         if not sibling.rfilename.endswith(SUFFIX_ALLOWLIST):
             continue
         sha = sibling.lfs.sha256 if sibling.lfs else None
@@ -178,7 +191,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     repo_key = args.model
-    repo_id = STATIC_SPECS[repo_key]["repo_id"]  # type: ignore[index]
+    config: StaticSpec = STATIC_SPECS[repo_key]
+    repo_id = config["repo_id"]
     token = args.token or os.getenv("HF_TOKEN")
     specs = resolve_specs(repo_key, token)
 
