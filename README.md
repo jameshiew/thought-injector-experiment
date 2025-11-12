@@ -72,13 +72,13 @@ uv run thought-injector run \
 uv run thought-injector run \
   -m models/pharia-1-control \
   --prompt "$(cat prompts/injected_thought.txt)" \
-  --vector-path vectors/aquariums.pt \
+  --vector-path vectors/aquariums_word_pharia.pt \
   --layer-index 20 \
   --strength 0.8 \
-  --start_match "Trial 1:" \
+  --start-match "Trial 1:" \
   --max-new-tokens 200 \
   --temperature 0.0 \
-  --normalize --scale_by 1.0 \
+  --normalize --scale-by 1.0 \
   --dtype auto
 ```
 
