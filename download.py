@@ -29,7 +29,7 @@ FILE_SPECS = (
     FileSpec("model.safetensors.index.json", "613a98d5e5716ca96fa75931abedc9c5a5d95f488ce4d62df71e639fe3ac6c59"),
     FileSpec("model-00001-of-00002.safetensors", "bc703090b63eda16f639fa4de7ac54635c23105ab1da2f6ec4d3403151d38ee6"),
     FileSpec("model-00002-of-00002.safetensors", "7ff79b9d2d31076bac2663393451f6530f4fc8ca49b09002116c92c373dba983"),
-    FileSpec("modeling_phi3.py", "7c3c13e0af6fc3b75d6ce9d9564d5bc79772c6b6fcfaefb4f8351247120809e5"),
+    FileSpec("modeling_phi3.py", "d5fd551a7fe759b1d25e5b16b5012aa98b9b8bd400d26c7ee69c0090a245d6cd"),
     FileSpec("special_tokens_map.json", "aff38493227d813e29fcf8406e8e90062f1f031aa47d589325e9c31d89ac7cc3"),
     FileSpec("tokenizer.json", "382cc235b56c725945e149cc25f191da667c836655efd0857b004320e90e91ea"),
     FileSpec("tokenizer_config.json", "9c9b6bc0c94d95f69f826c41069a3e8b387ac3ced89601d201886e99240ac9db"),
@@ -43,37 +43,6 @@ def sha256sum(path: Path) -> str:
             digest.update(chunk)
     return digest.hexdigest()
 
-
-def maybe_patch_modeling(path: Path) -> None:
-    """Apply the LossKwargs shim so the model runs on slightly older transformers."""
-
-    text = path.read_text(encoding="utf-8")
-    if "class LossKwargs(TypedDict" in text:
-        return  # Already patched.
-
-    original_typing = "from typing import Callable, List, Optional, Tuple, Union"
-    patched_typing = "from typing import Callable, List, Optional, Tuple, TypedDict, Union"
-    if original_typing in text:
-        text = text.replace(original_typing, patched_typing, 1)
-
-    loss_line = "    LossKwargs,\n"
-    if loss_line in text:
-        text = text.replace(loss_line, "", 1)
-
-    shim = (
-        "\ntry:  # Newer transformers expose LossKwargs; define a stub for older builds.\n"
-        "    from transformers.utils import LossKwargs\n"
-        "except ImportError:  # pragma: no cover - compatibility shim.\n"
-        "    class LossKwargs(TypedDict, total=False):  # type: ignore\n"
-        "        \"\"\"Minimal shim so Phi-3 modules can run on slightly older transformers.\"\"\"\n\n"
-        "        pass\n"
-    )
-
-    anchor = "from transformers.utils.deprecation import deprecate_kwarg"
-    if anchor not in text:
-        raise RuntimeError("modeling_phi3.py format changed; please update the shim logic.")
-    text = text.replace(anchor, shim + anchor, 1)
-    path.write_text(text, encoding="utf-8")
 
 
 def download_file(url: str, dest: Path) -> None:
@@ -111,8 +80,6 @@ def ensure_file(spec: FileSpec, target_dir: Path, force: bool) -> None:
 
     url = HF_BASE.format(filename=spec.name)
     download_file(url, dest)
-    if spec.name == "modeling_phi3.py":
-        maybe_patch_modeling(dest)
     actual = sha256sum(dest)
     if actual != spec.sha256:
         raise RuntimeError(f"Hash mismatch for {dest.name}: expected {spec.sha256}, got {actual}")

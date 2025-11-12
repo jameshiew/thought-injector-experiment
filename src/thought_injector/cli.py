@@ -2,12 +2,22 @@ import json
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, Optional, TypedDict
 
 import torch
 import typer
 from rich.console import Console
 from transformers import AutoModelForCausalLM, AutoTokenizer, GenerationConfig
+import transformers.utils as _transformers_utils
+
+
+if not hasattr(_transformers_utils, "LossKwargs"):
+    class _LossKwargs(TypedDict, total=False):  # type: ignore[misc]
+        """Shim for older transformers builds lacking LossKwargs."""
+
+        pass
+
+    _transformers_utils.LossKwargs = _LossKwargs  # type: ignore[attr-defined]
 
 console = Console()
 app = typer.Typer(help="Local concept-injection experiments for safetensors-based LMs.")
