@@ -1,6 +1,6 @@
 check:
     uv run ruff check .
-    uv run mypy .
+    uv run basedpyright
 
 fmt:
     uv run ruff format .
