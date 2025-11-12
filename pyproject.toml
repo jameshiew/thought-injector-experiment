@@ -1,0 +1,20 @@
+[project]
+name = "thought-injector"
+version = "0.1.0"
+description = "Local concept injection experiments for transformer LMs"
+readme = "README.md"
+authors = [{name = "Experimental Agent"}]
+requires-python = ">=3.10"
+dependencies = [
+    "torch>=2.4.0",
+    "transformers>=4.44.0",
+    "safetensors>=0.4.5",
+    "typer>=0.12.5",
+    "rich>=13.7.1"
+]
+
+[project.scripts]
+thought-injector = "thought_injector.cli:app"
+
+[tool.uv]
+package = true
