@@ -5,7 +5,7 @@ Minimal tooling to reproduce the key concept-injection experiment from `DESIGN.m
 ## Prereqs
 
 1. Install `uv` (see the official docs if you do not already have it).
-2. Place or symlink your model directory locally. The default setup assumes you've downloaded Pharia 1 Control into `models/pharia-1-control` via `python download.py pharia-1-control`, and that directory contains the usual Hugging Face files (`config.json`, `tokenizer.json`, `.safetensors`, etc.).
+2. Place or symlink your model directory locally. The default setup assumes you've downloaded Pharia 1 Control into `models/pharia-1-control` via `uv run python download.py pharia-1-control`, and that directory contains the usual Hugging Face files (`config.json`, `tokenizer.json`, `.safetensors`, etc.).
 
 ## Install
 
@@ -88,9 +88,9 @@ On 2025-11-12 we captured `vectors/aquariums_word_pharia.pt` via `capture-word` 
 
 Key switches:
 
-- `--start_match` finds the newline before your anchor string and automatically wires a closed window through the remainder of the sequence (set `--end_index` to cap it earlier, `--start_index/--end_index` for explicit token spans).
+- `--start-match` finds the newline before your anchor string and automatically wires a closed window through the remainder of the sequence (set `--end_index` to cap it earlier, `--start_index/--end_index` for explicit token spans).
 - `--generated_only` restricts the injection to tokens beyond the prompt; useful when you only want to steer newly sampled text.
-- `--normalize/--scale_by` default to unit RMS + `scale_by=1.0`, which keeps strengths in a friendly `0.3–1.2` range. Set `--no-normalize` if you want raw vector magnitudes.
+- `--normalize/--scale-by` default to unit RMS + `scale-by=1.0`, which keeps strengths in a friendly `0.3–1.2` range. Set `--no-normalize` if you want raw vector magnitudes.
 - `--apply-all-tokens` still works for coarse steering, but windowed spans are usually more stable.
 
 When any windowing or generated-only schedule is active, the CLI automatically disables KV caching so the hook can mutate the entire sequence each step.
@@ -106,9 +106,9 @@ uv run thought-injector sweep \
   -m models/pharia-1-control \
   --prompt "$(cat prompts/injected_thought.txt)" \
   --vector-path vectors/aquariums.pt \
-  --layer-index 12 --layer-index 16 --layer-index 20 --layer-index 24 --layer-index 28 \
+  --layer-index 12 --layer-index 16 --layer-index 20 --layer-index 24 --layer-index 25 \
   --strength 0.3 --strength 0.6 --strength 0.9 --strength 1.2 \
-  --start_match "Trial 1:" \
+  --start-match "Trial 1:" \
   --max-new-tokens 200 \
   --temperature 0.0 \
   --output-path sweeps/pharia_trial1.csv
@@ -124,9 +124,9 @@ uv run thought-injector inspect-vector vectors/aquariums.pt
 
 ## Troubleshooting & guardrails
 
-- If you see repetition or ellipsis walls, drop the strength, move to a later layer, or keep `--normalize` enabled and reduce `--scale_by`.
+- If you see repetition or ellipsis walls, drop the strength, move to a later layer, or keep `--normalize` enabled and reduce `--scale-by`.
 - Use `--generated_only` for minimal intrusion while debugging schedules.
-- To sanity-check window math, run with your `--start_match` (or explicit indices) plus `--strength 0.0`; the output should match the baseline exactly. Any divergence means the mask is off.
+- To sanity-check window math, run with your `--start-match` (or explicit indices) plus `--strength 0.0`; the output should match the baseline exactly. Any divergence means the mask is off.
 - Prefer `--include-prompt` only when you explicitly need the prefixed text; otherwise skip special tokens for easier diffing.
 - The hook finder assumes Llama-style decoder stacks (exposed as `model.layers` or `model.transformer.h`). Extending `_get_decoder_layers` is enough to support new architectures.
 - Keep a copy of at least one successful injection transcript (e.g., `injection_output.txt`) so you can confirm future code changes still recreate the same “aquariums” bias without retuning hyperparameters.

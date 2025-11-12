@@ -13,6 +13,7 @@ import transformers.utils as _transformers_utils
 import typer
 from rich.console import Console
 from transformers import AutoModelForCausalLM, AutoTokenizer, GenerationConfig
+from transformers.cache_utils import DynamicCache
 from transformers.utils import ModelOutput
 
 if not hasattr(_transformers_utils, "LossKwargs"):
@@ -23,6 +24,15 @@ if not hasattr(_transformers_utils, "LossKwargs"):
         pass
 
     _transformers_utils.LossKwargs = _LossKwargs  # type: ignore[attr-defined]
+
+if not hasattr(DynamicCache, "get_max_length"):
+
+    def _compat_dynamic_cache_max_length(self) -> int:
+        # Transformers ≥4.57 swapped `get_max_length` for `get_seq_length`.
+        # Provide the former so generation helpers keep working.
+        return self.get_seq_length()
+
+    DynamicCache.get_max_length = _compat_dynamic_cache_max_length  # type: ignore[assignment]
 
 console = Console()
 app = typer.Typer(help="Local concept-injection experiments for safetensors-based LMs.")
@@ -316,6 +326,13 @@ def _load_model_and_tokenizer(model_path: Path, dtype: torch.dtype, device: torc
     return model, tokenizer
 
 
+def _requires_cache_disabled(model) -> bool:
+    """Certain remote-code models mis-handle DynamicCache; fall back to full-seq mode."""
+
+    model_type = getattr(getattr(model, "config", None), "model_type", None)
+    return model_type in {"pharia", "pharia-v1", "pharia_v1"}
+
+
 def _get_decoder_layers(model):
     candidates = ["model", "transformer", "base_model", "decoder"]
     for attr in candidates:
@@ -343,6 +360,10 @@ def _resolve_layer(model, layer_index: int):
 def _tokenize(tokenizer, prompt: str, device: torch.device):
     encoded = tokenizer(prompt, return_tensors="pt")
     encoded.pop("token_type_ids", None)  # Decoder-only models typically reject this field.
+    mask = encoded.get("attention_mask")
+    if mask is not None and torch.count_nonzero(mask != 1) == 0:
+        # Drop no-op masks; some HF builds mis-handle cache lengths when we pass all-ones masks.
+        encoded.pop("attention_mask", None)
     return {k: v.to(device) for k, v in encoded.items()}
 
 
@@ -829,13 +850,16 @@ def run(
         handle = _register_injection(model, layer_index, vector_tensor, strength, schedule)
 
     disable_cache = vector_path is not None and schedule.requires_full_sequence()
+    if _requires_cache_disabled(model):
+        disable_cache = True
 
     try:
         with torch.no_grad():
+            use_cache = not disable_cache
             output_ids = model.generate(
                 **inputs,
                 generation_config=generation_config,
-                use_cache=not disable_cache,
+                use_cache=use_cache,
             )
         text = tokenizer.decode(output_ids[0], skip_special_tokens=not include_prompt)
         console.print("=== Model Output ===")
@@ -984,6 +1008,8 @@ def sweep(
     def _generate_text(layer_idx: int | None, strength_value: float | None) -> str:
         cloned_inputs = _clone_inputs(base_inputs)
         disable_cache = strength_value is not None and schedule.requires_full_sequence()
+        if _requires_cache_disabled(model):
+            disable_cache = True
         ctx = (
             injection_context(model, layer_idx, vector_tensor, strength_value, schedule)
             if layer_idx is not None and strength_value is not None
