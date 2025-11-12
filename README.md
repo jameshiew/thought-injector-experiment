@@ -150,3 +150,7 @@ Helper code now lives in focused modules under `thought_injector/` so `cli.py` o
 Validation note: persisted vectors and `InjectionSchedule` definitions are now Pydantic models (`VectorMetadata`, `VectorPayload`, `InjectionSchedule`). Import and extend those instead of rolling your own dicts so custom tooling keeps benefitting from the schema-level checks.
 
 Add new behavior by extending those modules rather than growing `cli.py` back into a monolith.
+
+### Type checking
+
+Run `just check` before committing to satisfy both Ruff and BasedPyright. Hugging Face helpers frequently return `Any`, so convert `BatchEncoding` payloads to plain `dict[str, torch.Tensor]` and `cast` tokenizer attributes/methods (e.g., `.decode`, `.pad_token_id`) to keep the static analyzer happy.

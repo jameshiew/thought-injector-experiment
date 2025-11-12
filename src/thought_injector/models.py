@@ -88,7 +88,7 @@ def load_model_and_tokenizer(
     model_path: Path, dtype: torch.dtype, device: torch.device
 ) -> tuple[PreTrainedModel, PreTrainedTokenizerBase]:
     console.print(f"Loading model from {model_path} (dtype={dtype}, device={device}) ...")
-    hf_model: Any = AutoModelForCausalLM.from_pretrained(
+    hf_model: Any = cast(Any, AutoModelForCausalLM).from_pretrained(
         model_path,
         dtype=dtype,
         trust_remote_code=True,
@@ -101,8 +101,10 @@ def load_model_and_tokenizer(
         model_path, use_fast=True, local_files_only=True
     )
     tokenizer = cast(PreTrainedTokenizerBase, hf_tokenizer)
-    if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token
+    pad_token = cast(str | list[str] | None, tokenizer.pad_token)
+    if pad_token is None:
+        eos_token = cast(str | list[str] | None, tokenizer.eos_token)
+        tokenizer.pad_token = eos_token
     return model, tokenizer
 
 
@@ -139,11 +141,14 @@ def tokenize(
     tokenizer: PreTrainedTokenizerBase, prompt: str, device: torch.device
 ) -> dict[str, torch.Tensor]:
     encoded: BatchEncoding = tokenizer(prompt, return_tensors="pt")
-    encoded.pop("token_type_ids", None)
-    mask = encoded.get("attention_mask")
+    encoded_data = cast(dict[str, torch.Tensor], encoded.data)
+    tensors: dict[str, torch.Tensor] = dict(encoded_data)
+
+    tensors.pop("token_type_ids", None)
+    mask = tensors.get("attention_mask")
     if mask is not None and torch.count_nonzero(mask != 1) == 0:
-        encoded.pop("attention_mask", None)
-    return {k: cast(torch.Tensor, v).to(device) for k, v in encoded.items()}
+        tensors.pop("attention_mask", None)
+    return {k: v.to(device) for k, v in tensors.items()}
 
 
 def resolve_token_index(index: int, seq_len: int) -> int:

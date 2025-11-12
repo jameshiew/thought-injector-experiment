@@ -1,39 +1,69 @@
 from __future__ import annotations
 
 import difflib
-from typing import Any
+from collections.abc import Callable, Sequence
+from typing import Any, cast
 
 import torch
 import typer
-from transformers.tokenization_utils_base import PreTrainedTokenizerBase
+from transformers.tokenization_utils_base import BatchEncoding, PreTrainedTokenizerBase
 
 from thought_injector.spans import AnchorError, locate_end_anchor, locate_start_anchor
 
 
-def flatten_first_sequence(values: Any) -> Any:
+def flatten_first_sequence(values: Any) -> list[Any]:
+    if values is None:
+        return []
     if isinstance(values, torch.Tensor):
-        values = values.squeeze(0).tolist()
+        squeezed = values.squeeze(0)
+        tolist_fn = cast(Callable[[], list[Any]], squeezed.tolist)
+        return tolist_fn()
     if isinstance(values, list):
-        if values and isinstance(values[0], list):
-            return values[0]
-        return values
+        if values and isinstance(values[0], (list, tuple)):
+            first_seq = cast(Sequence[Any], values[0])
+            return list(first_seq)
+        typed_values = cast(list[Any], values)
+        return list(typed_values)
     if isinstance(values, tuple):
         if values and isinstance(values[0], (list, tuple)):
-            return list(values[0])
-        return list(values)
-    return values
+            first_seq = cast(Sequence[Any], values[0])
+            return list(first_seq)
+        typed_values = cast(tuple[Any, ...], values)
+        return list(typed_values)
+    if isinstance(values, Sequence):
+        typed_values = cast(Sequence[Any], values)
+        return list(typed_values)
+    return [values]
 
 
 def token_index_from_char(tokenizer: PreTrainedTokenizerBase, prompt: str, char_index: int) -> int:
-    encoding = tokenizer(
+    encoding: BatchEncoding = tokenizer(
         prompt,
         add_special_tokens=True,
         return_offsets_mapping=True,
     )
-    offsets = encoding.get("offset_mapping")
-    offsets_seq = None
+    encoding_data = cast(dict[str, Any], getattr(encoding, "data", dict(encoding)))
+    offsets = cast(
+        torch.Tensor | list[Any] | tuple[Any, ...] | None, encoding_data.get("offset_mapping")
+    )
+    offsets_seq: list[tuple[int, int]] | None = None
     if offsets is not None:
-        offsets_seq = flatten_first_sequence(offsets)
+        flattened_offsets = flatten_first_sequence(offsets)
+        candidate_offsets: list[tuple[int, int]] = []
+        valid_offsets = True
+        for pair in flattened_offsets:
+            if not isinstance(pair, (list, tuple)):
+                valid_offsets = False
+                break
+            pair_seq = cast(Sequence[Any], pair)
+            if len(pair_seq) != 2:
+                valid_offsets = False
+                break
+            start_val = int(pair_seq[0])
+            end_val = int(pair_seq[1])
+            candidate_offsets.append((start_val, end_val))
+        if valid_offsets:
+            offsets_seq = candidate_offsets
 
     if offsets_seq is not None:
         for idx, (start, end) in enumerate(offsets_seq):
@@ -47,12 +77,22 @@ def token_index_from_char(tokenizer: PreTrainedTokenizerBase, prompt: str, char_
 
     prefix_end = min(char_index + 1, len(prompt))
     prefix = prompt[:prefix_end]
-    prefix_tokens = tokenizer(prefix, add_special_tokens=True).get("input_ids")
-    prefix_seq = flatten_first_sequence(prefix_tokens)
-    if not isinstance(prefix_seq, list):
+    prefix_encoding: BatchEncoding = tokenizer(prefix, add_special_tokens=True)
+    prefix_data = cast(dict[str, Any], getattr(prefix_encoding, "data", dict(prefix_encoding)))
+    prefix_tokens = cast(
+        torch.Tensor | list[Any] | tuple[Any, ...] | None, prefix_data.get("input_ids")
+    )
+    if prefix_tokens is None:
         raise typer.BadParameter(
             "Tokenizer must return list-based encodings for --start-match fallback."
         )
+    prefix_seq_raw = flatten_first_sequence(prefix_tokens)
+    try:
+        prefix_seq = [int(value) for value in prefix_seq_raw]
+    except (TypeError, ValueError) as exc:
+        raise typer.BadParameter(
+            "Tokenizer must return integer token ids for --start-match fallback."
+        ) from exc
     return max(len(prefix_seq) - 1, 0)
 
 

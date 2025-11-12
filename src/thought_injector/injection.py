@@ -131,12 +131,10 @@ def _remix_output(
     if isinstance(output, tuple):
         mutated = mutate_fn(output[0])
         return (mutated, *output[1:])
-    if isinstance(output, LastHiddenStateOutput):
-        hidden = getattr(output, "last_hidden_state", None)
-        if hidden is None:
-            return output
-        output.last_hidden_state = mutate_fn(hidden)
+    hidden = getattr(output, "last_hidden_state", None)
+    if hidden is None:
         return output
+    output.last_hidden_state = mutate_fn(hidden)
     return output  # pragma: no cover
 
 

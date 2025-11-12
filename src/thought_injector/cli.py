@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import csv
 import json
+from collections.abc import Callable
 from contextlib import nullcontext
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any, cast
 
 import torch
 import typer
+from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 
 from thought_injector.app import app, console, typed_command
 from thought_injector.baseline import load_baseline_words
@@ -40,6 +42,26 @@ if TYPE_CHECKING:
 
 else:
     from transformers import GenerationConfig
+
+
+ManualSeedFn = Callable[[int], torch.Generator]
+DecodeFn = Callable[..., str]
+
+
+def _seed_rng(seed: int) -> None:
+    seed_fn = cast(ManualSeedFn, torch.manual_seed)
+    seed_fn(seed)
+
+
+def _decode_output(
+    tokenizer: PreTrainedTokenizerBase,
+    token_ids: torch.Tensor,
+    *,
+    include_prompt: bool,
+) -> str:
+    decode_fn = cast(DecodeFn, tokenizer.decode)
+    return decode_fn(token_ids, skip_special_tokens=not include_prompt)
+
 
 SWEEP_LAYER_OPTION = typer.Option(
     None,
@@ -180,7 +202,7 @@ def capture_word(
             f"[yellow]Warning:[/yellow] requested {baseline_count} baseline words but only found {len(selected)}."
         )
 
-    baseline_vectors = []
+    baseline_vectors: list[torch.Tensor] = []
     for base_word in selected:
         base_prompt = f"Tell me about {base_word}."
         hidden = extract_hidden_state(
@@ -320,7 +342,7 @@ def run(
         raise typer.BadParameter("--end-occurrence requires --end-match.")
 
     if seed is not None:
-        torch.manual_seed(seed)
+        _seed_rng(seed)
 
     torch_dtype = resolve_dtype(dtype)
     torch_device = resolve_device(device)
@@ -373,13 +395,16 @@ def run(
                 f"[cyan]Resolved token span:[/cyan] {span_start}..{span_end}{note_suffix}"
             )
 
+    pad_token_id = cast(int | None, getattr(tokenizer, "pad_token_id", None))
+    eos_token_id = cast(int | None, getattr(tokenizer, "eos_token_id", None))
+
     generation_config = GenerationConfig(
         max_new_tokens=max_new_tokens,
         temperature=max(temperature, 1e-8),
         top_p=top_p,
         do_sample=temperature > 0,
-        pad_token_id=tokenizer.pad_token_id,
-        eos_token_id=tokenizer.eos_token_id,
+        pad_token_id=pad_token_id,
+        eos_token_id=eos_token_id,
     )
 
     vector_tensor: torch.Tensor | None = None
@@ -409,7 +434,7 @@ def run(
             generation_config=generation_config,
             use_cache=not disable_cache,
         )
-    text = tokenizer.decode(output_ids[0], skip_special_tokens=not include_prompt)
+    text = _decode_output(tokenizer, output_ids[0], include_prompt=include_prompt)
     console.print("=== Model Output ===")
     console.print(text)
 
@@ -523,7 +548,7 @@ def sweep(
         raise typer.BadParameter("--end-occurrence requires --end-match.")
 
     if seed is not None:
-        torch.manual_seed(seed)
+        _seed_rng(seed)
     if not layer_indices:
         raise typer.BadParameter("Provide at least one --layer-index for the sweep.")
     if not strengths:
@@ -559,13 +584,16 @@ def sweep(
         prompt_length=prompt_length,
     )
 
+    pad_token_id = cast(int | None, getattr(tokenizer, "pad_token_id", None))
+    eos_token_id = cast(int | None, getattr(tokenizer, "eos_token_id", None))
+
     generation_config = GenerationConfig(
         max_new_tokens=max_new_tokens,
         temperature=max(temperature, 1e-8),
         top_p=top_p,
         do_sample=temperature > 0,
-        pad_token_id=tokenizer.pad_token_id,
-        eos_token_id=tokenizer.eos_token_id,
+        pad_token_id=pad_token_id,
+        eos_token_id=eos_token_id,
     )
 
     record = load_vector(vector_path)
@@ -590,7 +618,7 @@ def sweep(
                 generation_config=generation_config,
                 use_cache=not disable_cache,
             )
-        decoded = tokenizer.decode(output_ids[0], skip_special_tokens=not include_prompt)
+        decoded = _decode_output(tokenizer, output_ids[0], include_prompt=include_prompt)
         return decoded
 
     baseline_text = _generate_text(layer_idx=None, strength_value=None)
