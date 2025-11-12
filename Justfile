@@ -1,11 +1,13 @@
-check:
-    uv run ruff check .
+lint:
+    tombi lint
+    uv run ruff check --diff .
     uv run basedpyright
 
 fmt:
+    tombi fmt
     uv run ruff format .
 
-audit:
+dep-check:
     uv run pip-audit
 
 test:
