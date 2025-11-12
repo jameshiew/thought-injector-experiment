@@ -96,15 +96,30 @@ class InjectionSchedule(BaseModel):
             and not (self.apply_all or has_window or self.single_index is not None)
         )
 
+        span: tuple[int, int]
         if effective_apply_all:
-            return (0, seq_len - 1)
-        if has_window:
-            return self._resolve_window_bounds(seq_len)
-        if self.single_index is not None:
+            span = (0, seq_len - 1)
+        elif has_window:
+            span = self._resolve_window_bounds(seq_len)
+        elif self.single_index is not None:
             idx = resolve_token_index(self.single_index, seq_len)
-            return (idx, idx)
-        idx = resolve_token_index(-1, seq_len)
-        return (idx, idx)
+            span = (idx, idx)
+        else:
+            idx = resolve_token_index(-1, seq_len)
+            span = (idx, idx)
+
+        if not self.generated_only:
+            return span
+        if self.prompt_length is None:
+            raise typer.BadParameter("--generated-only requires a known prompt token length.")
+        gen_start = min(self.prompt_length, seq_len)
+        if gen_start >= seq_len:
+            return None
+        start = max(span[0], gen_start)
+        end = span[1]
+        if start > end:
+            return None
+        return (start, end)
 
 
 def apply_injection(
