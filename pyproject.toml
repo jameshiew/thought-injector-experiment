@@ -17,6 +17,14 @@ dependencies = [
 [project.scripts]
 thought-injector = "thought_injector.cli:app"
 
+[dependency-groups]
+dev = [
+  "mypy",
+  "pip-audit",
+  "pytest",
+  "ruff",
+]
+
 [tool.mypy]
 python_version = "3.11"
 strict = true

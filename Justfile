@@ -1,12 +1,12 @@
 check:
-    uvx ruff check .
-    uvx mypy src
+    uv run ruff check .
+    uv run mypy src
 
 fmt:
-    uvx ruff format .
+    uv run ruff format .
 
 audit:
-    uvx pip-audit
+    uv run pip-audit
 
 test:
-    uvx pytest
+    uv run pytest
