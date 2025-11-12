@@ -1,62 +1,45 @@
 from __future__ import annotations
 
 import csv
-import difflib
 import json
-from collections.abc import Callable, Iterator
-from contextlib import contextmanager, nullcontext
-from dataclasses import dataclass
+from contextlib import nullcontext
 from pathlib import Path
-from typing import Annotated, Any, Protocol, TypedDict, TypeVar, cast
+from typing import TYPE_CHECKING, Annotated, Any, cast
 
 import torch
-import torch.nn as nn
-import transformers.utils as _transformers_utils
 import typer
-from rich.console import Console
-from torch.utils.hooks import RemovableHandle
-from transformers import AutoModelForCausalLM, AutoTokenizer, GenerationConfig, PreTrainedModel
-from transformers.cache_utils import DynamicCache
-from transformers.tokenization_utils_base import BatchEncoding, PreTrainedTokenizerBase
-from transformers.utils import ModelOutput
 
-if not hasattr(_transformers_utils, "LossKwargs"):
+from thought_injector.app import app, console, typed_command
+from thought_injector.baseline import load_baseline_words
+from thought_injector.injection import InjectionSchedule, injection_context
+from thought_injector.models import (
+    clone_inputs,
+    extract_hidden_state,
+    load_model_and_tokenizer,
+    requires_cache_disabled,
+    resolve_device,
+    resolve_dtype,
+    tokenize,
+)
+from thought_injector.text_utils import (
+    diff_length,
+    resolve_end_match_token_index,
+    resolve_start_match_token_index,
+)
+from thought_injector.vectors import (
+    ensure_vector_matches_model,
+    load_vector,
+    prepare_vector,
+    save_vector,
+)
 
-    class _LossKwargs(TypedDict, total=False):
-        """Shim for older transformers builds lacking LossKwargs."""
+if TYPE_CHECKING:
 
-        pass
+    class GenerationConfig:  # pragma: no cover - type stub
+        def __init__(self, *args: Any, **kwargs: Any) -> None: ...
 
-    cast(Any, _transformers_utils).LossKwargs = _LossKwargs
-
-if not hasattr(DynamicCache, "get_max_length"):
-
-    def _compat_dynamic_cache_max_length(self: DynamicCache) -> int:
-        # Transformers ≥4.57 swapped `get_max_length` for `get_seq_length`.
-        # Provide the former so generation helpers keep working.
-        return cast(int, self.get_seq_length())
-
-    cast(Any, DynamicCache).get_max_length = _compat_dynamic_cache_max_length
-
-console = Console()
-app = typer.Typer(help="Local concept-injection experiments for safetensors-based LMs.")
-FuncT = TypeVar("FuncT", bound=Callable[..., Any])
-
-
-def typed_command(*args: Any, **kwargs: Any) -> Callable[[FuncT], FuncT]:
-    decorator = app.command(*args, **kwargs)
-
-    def _wrapper(func: FuncT) -> FuncT:
-        return cast(FuncT, decorator(func))
-
-    return _wrapper
-
-
-DTYPE_MAP: dict[str, torch.dtype] = {
-    "float16": torch.float16,
-    "bfloat16": torch.bfloat16,
-    "float32": torch.float32,
-}
+else:
+    from transformers import GenerationConfig
 
 SWEEP_LAYER_OPTION = typer.Option(
     None,
@@ -68,571 +51,6 @@ SWEEP_STRENGTH_OPTION = typer.Option(
     "--strength",
     help="One or more strengths to evaluate (repeat flag).",
 )
-
-DEFAULT_BASELINE_WORDS: list[str] = [
-    # Concrete nouns
-    "hats",
-    "radios",
-    "shirts",
-    "trains",
-    "locks",
-    "boxes",
-    "pants",
-    "papers",
-    "windows",
-    "rings",
-    "houses",
-    "chairs",
-    "mirrors",
-    "walls",
-    "necklaces",
-    "books",
-    "batteries",
-    "desks",
-    "bracelets",
-    "keys",
-    "rocks",
-    "computers",
-    "trees",
-    "bottles",
-    "offices",
-    "cameras",
-    "gloves",
-    "coins",
-    "cars",
-    "watches",
-    "buildings",
-    "lamps",
-    "clocks",
-    "bicycles",
-    "speakers",
-    "floors",
-    "phones",
-    "ceilings",
-    "ships",
-    "tables",
-    "apartments",
-    "bridges",
-    "televisions",
-    "shoes",
-    "doors",
-    "needles",
-    "pens",
-    "airplanes",
-    "roads",
-    "pencils",
-    # Abstract nouns
-    "duty",
-    "evil",
-    "progress",
-    "creativity",
-    "mastery",
-    "competition",
-    "change",
-    "peace",
-    "honor",
-    "good",
-    "unity",
-    "diversity",
-    "trust",
-    "chaos",
-    "liberty",
-    "balance",
-    "harmony",
-    "equality",
-    "conflict",
-    "justice",
-    "ugliness",
-    "morality",
-    "innovation",
-    "power",
-    "space",
-    "tradition",
-    "wisdom",
-    "failure",
-    "democracy",
-    "time",
-    "loyalty",
-    "privilege",
-    "order",
-    "authority",
-    "freedom",
-    "ethics",
-    "cooperation",
-    "independence",
-    "defeat",
-    "truth",
-    "betrayal",
-    "dignity",
-    "success",
-    "courage",
-    "victory",
-    "faith",
-    "knowledge",
-    "rights",
-    "intelligence",
-    "beauty",
-    # Verbs
-    "thinking",
-    "laughing",
-    "drinking",
-    "singing",
-    "whispering",
-    "reading",
-    "dreaming",
-    "catching",
-    "pulling",
-    "crying",
-    "breathing",
-    "studying",
-    "writing",
-    "screaming",
-    "growing",
-    "talking",
-    "dancing",
-    "falling",
-    "cooking",
-    "winning",
-    "shouting",
-    "learning",
-    "creating",
-    "eating",
-    "pushing",
-    "playing",
-    "teaching",
-    "swimming",
-    "speaking",
-    "destroying",
-    "smiling",
-    "shrinking",
-    "sinking",
-    "breaking",
-    "rising",
-    "floating",
-    "racing",
-    "sleeping",
-    "working",
-    "jumping",
-    "driving",
-    "walking",
-    "flying",
-    "sculpting",
-    "building",
-    "frowning",
-    "striving",
-    "running",
-    "listening",
-    "throwing",
-]
-
-
-@dataclass
-class InjectionSchedule:
-    apply_all: bool = False
-    single_index: int | None = None
-    window_start: int | None = None
-    window_end: int | None = None
-    generated_only: bool = False
-    prompt_length: int | None = None
-
-    def has_window(self) -> bool:
-        return self.window_start is not None or self.window_end is not None
-
-    def requires_full_sequence(self) -> bool:
-        return self.apply_all or self.has_window() or self.generated_only
-
-    def resolve_mask(self, seq_len: int, device: torch.device) -> torch.Tensor:
-        mask = torch.zeros(seq_len, dtype=torch.bool, device=device)
-        has_window = self.has_window()
-        effective_apply_all = self.apply_all or (
-            self.generated_only
-            and not (self.apply_all or has_window or self.single_index is not None)
-        )
-
-        if effective_apply_all:
-            mask[:] = True
-        elif has_window:
-            start_raw = 0 if self.window_start is None else self.window_start
-            end_raw = -1 if self.window_end is None else self.window_end
-            start_idx = _resolve_token_index(start_raw, seq_len)
-            end_idx = _resolve_token_index(end_raw, seq_len)
-            if end_idx < start_idx:
-                raise typer.BadParameter(
-                    "Window end index must be greater than or equal to start index once resolved."
-                )
-            mask[start_idx : end_idx + 1] = True
-        elif self.single_index is not None:
-            idx = _resolve_token_index(self.single_index, seq_len)
-            mask[idx] = True
-        else:
-            idx = _resolve_token_index(-1, seq_len)
-            mask[idx] = True
-
-        if self.generated_only:
-            if self.prompt_length is None:
-                raise typer.BadParameter("--generated-only requires a known prompt token length.")
-            gen_start = min(self.prompt_length, seq_len)
-            gen_mask = torch.zeros_like(mask)
-            if gen_start < seq_len:
-                gen_mask[gen_start:] = True
-            mask &= gen_mask
-        return mask
-
-
-def _gpu_supports_bfloat16() -> bool:
-    """Return True when the primary CUDA device supports bfloat16."""
-
-    if not torch.cuda.is_available():
-        return False
-
-    is_bf16_supported = getattr(torch.cuda, "is_bf16_supported", None)
-    if callable(is_bf16_supported):
-        try:
-            if torch.cuda.is_bf16_supported():
-                return True
-        except RuntimeError:
-            return False
-
-    try:
-        capability = cast(tuple[int, int], torch.cuda.get_device_capability())
-    except RuntimeError:
-        return False
-    # Ampere (sm80) or newer GPUs provide native bfloat16 support.
-    return capability[0] >= 8
-
-
-@dataclass
-class VectorRecord:
-    vector: torch.Tensor
-    metadata: dict[str, object]
-
-
-class LayerSequence(Protocol):
-    def __len__(self) -> int: ...
-
-    def __getitem__(self, index: int) -> nn.Module: ...
-
-
-def _resolve_dtype(name: str) -> torch.dtype:
-    if name == "auto":
-        name = "bfloat16" if _gpu_supports_bfloat16() else "float16"
-        console.print(f"Auto-selecting torch dtype '{name}'.")
-    try:
-        return DTYPE_MAP[name]
-    except KeyError as exc:  # pragma: no cover - defensive.
-        raise typer.BadParameter(
-            f"Unsupported dtype '{name}'. Choose from {list(DTYPE_MAP)}"
-        ) from exc
-
-
-def _resolve_device(name: str) -> torch.device:
-    if name == "auto":
-        return torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    return torch.device(name)
-
-
-def _load_model_and_tokenizer(
-    model_path: Path, dtype: torch.dtype, device: torch.device
-) -> tuple[PreTrainedModel, PreTrainedTokenizerBase]:
-    console.print(f"Loading model from {model_path} (dtype={dtype}, device={device}) ...")
-    model = cast(
-        PreTrainedModel,
-        AutoModelForCausalLM.from_pretrained(
-            model_path,
-            dtype=dtype,
-            trust_remote_code=True,
-            local_files_only=True,
-        ),
-    )
-    model.to(device)
-    model.eval()
-    tokenizer = cast(
-        PreTrainedTokenizerBase,
-        AutoTokenizer.from_pretrained(model_path, use_fast=True, local_files_only=True),
-    )
-    if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token
-    return model, tokenizer
-
-
-def _requires_cache_disabled(model: PreTrainedModel) -> bool:
-    """Certain remote-code models mis-handle DynamicCache; fall back to full-seq mode."""
-
-    model_type = getattr(getattr(model, "config", None), "model_type", None)
-    return model_type in {"pharia", "pharia-v1", "pharia_v1"}
-
-
-def _get_decoder_layers(model: PreTrainedModel) -> LayerSequence:
-    candidates = ["model", "transformer", "base_model", "decoder"]
-    for attr in candidates:
-        sub = getattr(model, attr, None)
-        if sub is None:
-            continue
-        for layer_attr in ("layers", "h"):
-            layers = getattr(sub, layer_attr, None)
-            if layers is not None:
-                return cast(LayerSequence, layers)
-    raise RuntimeError(
-        "Could not locate decoder layers. This implementation currently supports Llama-style models."
-    )
-
-
-def _resolve_layer(model: PreTrainedModel, layer_index: int) -> nn.Module:
-    layers = _get_decoder_layers(model)
-    if layer_index < 0 or layer_index >= len(layers):
-        raise typer.BadParameter(
-            f"layer-index must be in [0, {len(layers) - 1}] but got {layer_index}"
-        )
-    return layers[layer_index]
-
-
-def _tokenize(
-    tokenizer: PreTrainedTokenizerBase, prompt: str, device: torch.device
-) -> dict[str, torch.Tensor]:
-    encoded: BatchEncoding = tokenizer(prompt, return_tensors="pt")
-    encoded.pop("token_type_ids", None)  # Decoder-only models typically reject this field.
-    mask = encoded.get("attention_mask")
-    if mask is not None and torch.count_nonzero(mask != 1) == 0:
-        # Drop no-op masks; some HF builds mis-handle cache lengths when we pass all-ones masks.
-        encoded.pop("attention_mask", None)
-    return {k: cast(torch.Tensor, v).to(device) for k, v in encoded.items()}
-
-
-def _extract_hidden_state(
-    model: PreTrainedModel,
-    tokenizer: PreTrainedTokenizerBase,
-    prompt: str,
-    layer_index: int,
-    token_index: int,
-    device: torch.device,
-) -> torch.Tensor:
-    inputs = _tokenize(tokenizer, prompt, device)
-    with torch.no_grad():
-        outputs = cast(
-            ModelOutput,
-            model(**inputs, output_hidden_states=True, use_cache=False),
-        )
-    hidden_states = outputs.hidden_states
-    if hidden_states is None:
-        raise RuntimeError(
-            "Model did not return hidden states; enable output_hidden_states support."
-        )
-    if layer_index >= model.config.num_hidden_layers:
-        raise typer.BadParameter(
-            f"layer-index {layer_index} exceeds num_hidden_layers={model.config.num_hidden_layers}"
-        )
-    layer_hidden = hidden_states[layer_index + 1]  # +1 skips embedding output.
-    resolved_index = _resolve_token_index(token_index, layer_hidden.shape[1])
-    return layer_hidden[:, resolved_index, :].mean(dim=0).detach().cpu()
-
-
-def _resolve_token_index(index: int, seq_len: int) -> int:
-    if index < 0:
-        index = seq_len + index
-    if index < 0 or index >= seq_len:
-        raise typer.BadParameter(f"token-index out of range for sequence length {seq_len}")
-    return index
-
-
-def _save_vector(path: Path, vector: torch.Tensor, metadata: dict[str, object]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    payload = {"vector": vector, "metadata": metadata}
-    torch.save(payload, path)
-    console.print(f"Saved vector -> {path}")
-
-
-def _load_vector(path: Path) -> VectorRecord:
-    payload = torch.load(path, map_location="cpu")
-    if "vector" not in payload:
-        raise typer.BadParameter(f"Vector file {path} missing 'vector' key")
-    metadata = payload.get("metadata", {})
-    return VectorRecord(vector=payload["vector"], metadata=metadata)
-
-
-def _broadcast_vector(vector: torch.Tensor, hidden_states: torch.Tensor) -> torch.Tensor:
-    return vector.to(dtype=hidden_states.dtype, device=hidden_states.device)
-
-
-def _load_baseline_words(baseline_path: Path | None) -> list[str]:
-    if baseline_path is None:
-        return list(DEFAULT_BASELINE_WORDS)
-    if not baseline_path.exists():
-        raise typer.BadParameter(f"Baseline word file '{baseline_path}' not found.")
-    words = [line.strip() for line in baseline_path.read_text().splitlines() if line.strip()]
-    if not words:
-        raise typer.BadParameter("Baseline word list is empty.")
-    return words
-
-
-def _normalize_vector(vector: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
-    rms = torch.sqrt(torch.mean(vector.to(torch.float32) ** 2))
-    if torch.isnan(rms) or rms.item() < eps:
-        raise typer.BadParameter("Vector has near-zero RMS; cannot normalize.")
-    return vector / rms
-
-
-def _prepare_vector(vector: torch.Tensor, normalize: bool, scale_by: float) -> torch.Tensor:
-    result = vector.to(torch.float32)
-    if normalize:
-        result = _normalize_vector(result)
-    if scale_by != 1.0:
-        result = result * scale_by
-    return result
-
-
-def _clone_inputs(inputs: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
-    return {k: v.clone() for k, v in inputs.items()}
-
-
-def _locate_start_match(prompt: str, match: str) -> int:
-    match_index = prompt.find(match)
-    if match_index == -1:
-        raise typer.BadParameter(f"start_match '{match}' not found inside prompt text.")
-    newline_index = prompt.rfind("\n", 0, match_index)
-    return newline_index if newline_index != -1 else match_index
-
-
-def _flatten_first_sequence(values: Any) -> Any:
-    if isinstance(values, torch.Tensor):
-        # Coerce to CPU ints to simplify downstream logic.
-        values = values.squeeze(0).tolist()
-    if isinstance(values, list):
-        if values and isinstance(values[0], list):  # Strip batch dimension.
-            return values[0]
-        return values
-    if isinstance(values, tuple):
-        if values and isinstance(values[0], (list, tuple)):
-            return list(values[0])
-        return list(values)
-    return values
-
-
-def _token_index_from_char(tokenizer: PreTrainedTokenizerBase, prompt: str, char_index: int) -> int:
-    encoding = tokenizer(
-        prompt,
-        add_special_tokens=True,
-        return_offsets_mapping=True,
-    )
-    offsets = encoding.get("offset_mapping")
-    offsets_seq = None
-    if offsets is not None:
-        offsets_seq = _flatten_first_sequence(offsets)
-
-    if offsets_seq is not None:
-        for idx, (start, end) in enumerate(offsets_seq):
-            if start <= char_index < end:
-                return idx
-        if char_index >= len(prompt):
-            return len(offsets_seq) - 1
-        raise typer.BadParameter(
-            "Could not map character offset to a tokenizer index; check --start-match anchor."
-        )
-
-    # Slow-tokenizer fallback: tokenize the prefix (inclusive) and count tokens.
-    prefix_end = min(char_index + 1, len(prompt))
-    prefix = prompt[:prefix_end]
-    prefix_tokens = tokenizer(prefix, add_special_tokens=True).get("input_ids")
-    prefix_seq = _flatten_first_sequence(prefix_tokens)
-    if not isinstance(prefix_seq, list):
-        raise typer.BadParameter(
-            "Tokenizer must return list-based encodings for --start-match fallback."
-        )
-    return max(len(prefix_seq) - 1, 0)
-
-
-def _resolve_start_match_token_index(
-    tokenizer: PreTrainedTokenizerBase, prompt: str, match: str
-) -> int:
-    anchor_char = _locate_start_match(prompt, match)
-    return _token_index_from_char(tokenizer, prompt, anchor_char)
-
-
-def _diff_length(reference: str, candidate: str) -> int:
-    diff_total = 0
-    for chunk in difflib.ndiff(reference, candidate):
-        if not chunk:
-            continue
-        if chunk[0] in {"+", "-"}:
-            diff_total += len(chunk[2:])
-    return diff_total
-
-
-def _apply_injection(
-    hidden_states: torch.Tensor,
-    vector: torch.Tensor,
-    strength: float,
-    schedule: InjectionSchedule,
-) -> torch.Tensor:
-    mask = schedule.resolve_mask(hidden_states.shape[1], hidden_states.device)
-    if not torch.any(mask):
-        return hidden_states
-    vector = strength * _broadcast_vector(vector, hidden_states)
-    hidden_states = hidden_states.clone()
-    hidden_states[:, mask, :] += vector
-    return hidden_states
-
-
-def _remix_output(
-    output: ModelOutput | torch.Tensor | tuple[torch.Tensor, ...],
-    mutate_fn: Callable[[torch.Tensor], torch.Tensor],
-) -> ModelOutput | torch.Tensor | tuple[torch.Tensor, ...]:
-    if isinstance(output, torch.Tensor):
-        return mutate_fn(output)
-    if isinstance(output, tuple):
-        mutated = mutate_fn(output[0])
-        return (mutated, *output[1:])
-    if isinstance(output, ModelOutput):
-        hidden = getattr(output, "last_hidden_state", None)
-        if hidden is None:
-            return output
-        output.last_hidden_state = mutate_fn(hidden)
-        return output
-    return output  # pragma: no cover - defensive fallback.
-
-
-def _register_injection(
-    model: PreTrainedModel,
-    layer_index: int,
-    vector: torch.Tensor,
-    strength: float,
-    schedule: InjectionSchedule,
-) -> RemovableHandle:
-    layer = _resolve_layer(model, layer_index)
-
-    def hook(
-        module: nn.Module,  # pylint: disable=unused-argument
-        inputs: tuple[torch.Tensor, ...],
-        output: ModelOutput | torch.Tensor | tuple[torch.Tensor, ...],
-    ) -> ModelOutput | torch.Tensor | tuple[torch.Tensor, ...]:
-        return _remix_output(
-            output,
-            lambda hidden: _apply_injection(hidden, vector, strength, schedule),
-        )
-
-    return layer.register_forward_hook(hook)
-
-
-@contextmanager
-def injection_context(
-    model: PreTrainedModel,
-    layer_index: int,
-    vector: torch.Tensor,
-    strength: float,
-    schedule: InjectionSchedule,
-) -> Iterator[None]:
-    handle = _register_injection(model, layer_index, vector, strength, schedule)
-    try:
-        yield
-    finally:
-        handle.remove()
-
-
-def _ensure_vector_matches_model(vector: torch.Tensor, model: PreTrainedModel) -> None:
-    hidden_size = model.config.hidden_size
-    if vector.shape[-1] != hidden_size:
-        raise typer.BadParameter(
-            f"Vector hidden size {vector.shape[-1]} != model hidden size {hidden_size}."
-        )
 
 
 @typed_command()
@@ -675,14 +93,14 @@ def capture(
 ) -> None:
     """Capture a concept vector by differencing two prompts."""
 
-    torch_dtype = _resolve_dtype(dtype)
-    torch_device = _resolve_device(device)
-    model, tokenizer = _load_model_and_tokenizer(model_path, torch_dtype, torch_device)
+    torch_dtype = resolve_dtype(dtype)
+    torch_device = resolve_device(device)
+    model, tokenizer = load_model_and_tokenizer(model_path, torch_dtype, torch_device)
 
-    pos_hidden = _extract_hidden_state(
+    pos_hidden = extract_hidden_state(
         model, tokenizer, positive_prompt, layer_index, token_index, torch_device
     )
-    neg_hidden = _extract_hidden_state(
+    neg_hidden = extract_hidden_state(
         model, tokenizer, negative_prompt, layer_index, token_index, torch_device
     )
     vector = (pos_hidden - neg_hidden).to(torch.float32)
@@ -694,7 +112,7 @@ def capture(
         "positive_prompt": positive_prompt,
         "negative_prompt": negative_prompt,
     }
-    _save_vector(output_path, vector, metadata)
+    save_vector(output_path, vector, metadata)
 
 
 @typed_command()
@@ -743,16 +161,16 @@ def capture_word(
     if baseline_count <= 0:
         raise typer.BadParameter("baseline-count must be positive.")
 
-    torch_dtype = _resolve_dtype(dtype)
-    torch_device = _resolve_device(device)
-    model, tokenizer = _load_model_and_tokenizer(model_path, torch_dtype, torch_device)
+    torch_dtype = resolve_dtype(dtype)
+    torch_device = resolve_device(device)
+    model, tokenizer = load_model_and_tokenizer(model_path, torch_dtype, torch_device)
 
     positive_prompt = f"Tell me about {word}."
-    target_hidden = _extract_hidden_state(
+    target_hidden = extract_hidden_state(
         model, tokenizer, positive_prompt, layer_index, token_index, torch_device
     )
 
-    baseline_words = _load_baseline_words(baseline_path)
+    baseline_words = load_baseline_words(baseline_path)
     baseline_words = [w for w in baseline_words if w.lower() != word.lower()]
     selected = baseline_words[:baseline_count]
     if not selected:
@@ -765,7 +183,7 @@ def capture_word(
     baseline_vectors = []
     for base_word in selected:
         base_prompt = f"Tell me about {base_word}."
-        hidden = _extract_hidden_state(
+        hidden = extract_hidden_state(
             model, tokenizer, base_prompt, layer_index, token_index, torch_device
         )
         baseline_vectors.append(hidden)
@@ -784,7 +202,7 @@ def capture_word(
             "baseline": [f"Tell me about {w}." for w in selected],
         },
     }
-    _save_vector(output_path, vector, metadata)
+    save_vector(output_path, vector, metadata)
     rms = torch.sqrt(torch.mean(vector**2)).item()
     console.print(f"Vector RMS: {rms:.6f}")
 
@@ -827,6 +245,18 @@ def run(
             help="Substring anchor; injection begins on the newline preceding this match."
         ),
     ] = None,
+    end_match: Annotated[
+        str | None,
+        typer.Option(help="Substring anchor; injection ends on the newline following this match."),
+    ] = None,
+    start_occurrence: Annotated[
+        int,
+        typer.Option(help="1-based occurrence index for --start-match.", min=1, show_default=True),
+    ] = 1,
+    end_occurrence: Annotated[
+        int,
+        typer.Option(help="1-based occurrence index for --end-match.", min=1, show_default=True),
+    ] = 1,
     strength: Annotated[
         float,
         typer.Option(help="Multiplier applied to the concept vector."),
@@ -877,23 +307,39 @@ def run(
         bool,
         typer.Option(help="Return the full decoded sequence (prompt + continuation)."),
     ] = False,
+    verbose: Annotated[
+        bool,
+        typer.Option(help="Print the resolved token span before running the model."),
+    ] = False,
 ) -> None:
     """Run the prompt with optional activation injection."""
+
+    if start_match is None and start_occurrence != 1:
+        raise typer.BadParameter("--start-occurrence requires --start-match.")
+    if end_match is None and end_occurrence != 1:
+        raise typer.BadParameter("--end-occurrence requires --end-match.")
 
     if seed is not None:
         torch.manual_seed(seed)
 
-    torch_dtype = _resolve_dtype(dtype)
-    torch_device = _resolve_device(device)
-    model, tokenizer = _load_model_and_tokenizer(model_path, torch_dtype, torch_device)
+    torch_dtype = resolve_dtype(dtype)
+    torch_device = resolve_device(device)
+    model, tokenizer = load_model_and_tokenizer(model_path, torch_dtype, torch_device)
+    sampling_model = cast(Any, model)
 
-    inputs = _tokenize(tokenizer, prompt, torch_device)
+    inputs = tokenize(tokenizer, prompt, torch_device)
     prompt_length = inputs["input_ids"].shape[1]
 
     resolved_start_index = start_index
     if start_match is not None:
-        resolved_start_index = _resolve_start_match_token_index(tokenizer, prompt, start_match)
+        resolved_start_index = resolve_start_match_token_index(
+            tokenizer, prompt, start_match, start_occurrence
+        )
     resolved_end_index = end_index
+    if end_match is not None:
+        resolved_end_index = resolve_end_match_token_index(
+            tokenizer, prompt, end_match, end_occurrence
+        )
     if resolved_start_index is not None and resolved_end_index is None:
         resolved_end_index = -1
 
@@ -906,6 +352,27 @@ def run(
         prompt_length=prompt_length,
     )
 
+    if verbose:
+        span = schedule.resolved_span(prompt_length)
+        if span is None:
+            console.print(
+                f"[yellow]Resolved token span is empty for prompt length {prompt_length}. Check your flags."
+            )
+        else:
+            span_start, span_end = span
+            notes: list[str] = []
+            if schedule.has_window() and schedule.window_end == -1:
+                notes.append("end follows the latest token (open-ended)")
+            if schedule.generated_only:
+                gen_origin = (
+                    schedule.prompt_length if schedule.prompt_length is not None else prompt_length
+                )
+                notes.append(f"generated-only (>= index {gen_origin})")
+            note_suffix = f" [{' | '.join(notes)}]" if notes else ""
+            console.print(
+                f"[cyan]Resolved token span:[/cyan] {span_start}..{span_end}{note_suffix}"
+            )
+
     generation_config = GenerationConfig(
         max_new_tokens=max_new_tokens,
         temperature=max(temperature, 1e-8),
@@ -916,36 +383,35 @@ def run(
     )
 
     vector_tensor: torch.Tensor | None = None
-    handle = None
     if vector_path is not None:
-        record = _load_vector(vector_path)
-        _ensure_vector_matches_model(record.vector, model)
-        vector_tensor = _prepare_vector(record.vector, normalize, scale_by)
+        record = load_vector(vector_path)
+        ensure_vector_matches_model(record.vector, model)
+        vector_tensor = prepare_vector(record.vector, normalize, scale_by)
         metadata_layer = record.metadata.get("layer_index")
         if metadata_layer is not None and metadata_layer != layer_index:
             console.print(
                 f"[yellow]Warning:[/yellow] vector recorded from layer {metadata_layer}, but we will inject at layer {layer_index}."
             )
-        handle = _register_injection(model, layer_index, vector_tensor, strength, schedule)
 
-    disable_cache = vector_path is not None and schedule.requires_full_sequence()
-    if _requires_cache_disabled(model):
+    disable_cache = vector_tensor is not None and schedule.requires_full_sequence()
+    if requires_cache_disabled(model):
         disable_cache = True
 
-    try:
-        with torch.no_grad():
-            use_cache = not disable_cache
-            output_ids = model.generate(
-                **inputs,
-                generation_config=generation_config,
-                use_cache=use_cache,
-            )
-        text = tokenizer.decode(output_ids[0], skip_special_tokens=not include_prompt)
-        console.print("=== Model Output ===")
-        console.print(text)
-    finally:
-        if handle is not None:
-            handle.remove()
+    ctx = (
+        injection_context(model, layer_index, vector_tensor, strength, schedule)
+        if vector_tensor is not None
+        else nullcontext()
+    )
+
+    with torch.no_grad(), ctx:
+        output_ids = sampling_model.generate(
+            **inputs,
+            generation_config=generation_config,
+            use_cache=not disable_cache,
+        )
+    text = tokenizer.decode(output_ids[0], skip_special_tokens=not include_prompt)
+    console.print("=== Model Output ===")
+    console.print(text)
 
 
 @typed_command()
@@ -984,6 +450,18 @@ def sweep(
             help="Substring anchor; injection begins on the newline preceding this match."
         ),
     ] = None,
+    end_match: Annotated[
+        str | None,
+        typer.Option(help="Substring anchor; injection ends on the newline following this match."),
+    ] = None,
+    start_occurrence: Annotated[
+        int,
+        typer.Option(help="1-based occurrence index for --start-match.", min=1, show_default=True),
+    ] = 1,
+    end_occurrence: Annotated[
+        int,
+        typer.Option(help="1-based occurrence index for --end-match.", min=1, show_default=True),
+    ] = 1,
     apply_all_tokens: Annotated[
         bool,
         typer.Option(help="If set, injects into every token in the sequence."),
@@ -1039,6 +517,11 @@ def sweep(
 ) -> None:
     """Sweep layer/strength combinations and log outputs to CSV."""
 
+    if start_match is None and start_occurrence != 1:
+        raise typer.BadParameter("--start-occurrence requires --start-match.")
+    if end_match is None and end_occurrence != 1:
+        raise typer.BadParameter("--end-occurrence requires --end-match.")
+
     if seed is not None:
         torch.manual_seed(seed)
     if not layer_indices:
@@ -1046,17 +529,24 @@ def sweep(
     if not strengths:
         raise typer.BadParameter("Provide at least one --strength for the sweep.")
 
-    torch_dtype = _resolve_dtype(dtype)
-    torch_device = _resolve_device(device)
-    model, tokenizer = _load_model_and_tokenizer(model_path, torch_dtype, torch_device)
+    torch_dtype = resolve_dtype(dtype)
+    torch_device = resolve_device(device)
+    model, tokenizer = load_model_and_tokenizer(model_path, torch_dtype, torch_device)
+    sampling_model = cast(Any, model)
 
-    base_inputs = _tokenize(tokenizer, prompt, torch_device)
+    base_inputs = tokenize(tokenizer, prompt, torch_device)
     prompt_length = base_inputs["input_ids"].shape[1]
 
     resolved_start_index = start_index
     if start_match is not None:
-        resolved_start_index = _resolve_start_match_token_index(tokenizer, prompt, start_match)
+        resolved_start_index = resolve_start_match_token_index(
+            tokenizer, prompt, start_match, start_occurrence
+        )
     resolved_end_index = end_index
+    if end_match is not None:
+        resolved_end_index = resolve_end_match_token_index(
+            tokenizer, prompt, end_match, end_occurrence
+        )
     if resolved_start_index is not None and resolved_end_index is None:
         resolved_end_index = -1
 
@@ -1078,16 +568,16 @@ def sweep(
         eos_token_id=tokenizer.eos_token_id,
     )
 
-    record = _load_vector(vector_path)
-    _ensure_vector_matches_model(record.vector, model)
-    vector_tensor = _prepare_vector(record.vector, normalize, scale_by)
+    record = load_vector(vector_path)
+    ensure_vector_matches_model(record.vector, model)
+    vector_tensor = prepare_vector(record.vector, normalize, scale_by)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     def _generate_text(layer_idx: int | None, strength_value: float | None) -> str:
-        cloned_inputs = _clone_inputs(base_inputs)
+        cloned_inputs = clone_inputs(base_inputs)
         disable_cache = strength_value is not None and schedule.requires_full_sequence()
-        if _requires_cache_disabled(model):
+        if requires_cache_disabled(model):
             disable_cache = True
         ctx = (
             injection_context(model, layer_idx, vector_tensor, strength_value, schedule)
@@ -1095,13 +585,13 @@ def sweep(
             else nullcontext()
         )
         with torch.no_grad(), ctx:
-            output_ids = model.generate(
+            output_ids = sampling_model.generate(
                 **cloned_inputs,
                 generation_config=generation_config,
                 use_cache=not disable_cache,
             )
         decoded = tokenizer.decode(output_ids[0], skip_special_tokens=not include_prompt)
-        return cast(str, decoded)
+        return decoded
 
     baseline_text = _generate_text(layer_idx=None, strength_value=None)
 
@@ -1118,7 +608,7 @@ def sweep(
     for layer_idx in layer_indices:
         for strength_value in strengths:
             trial_text = _generate_text(layer_idx=layer_idx, strength_value=strength_value)
-            diff_len = _diff_length(baseline_text, trial_text)
+            diff_len = diff_length(baseline_text, trial_text)
             rows.append(
                 {
                     "layer_index": layer_idx,
@@ -1146,7 +636,7 @@ def inspect_vector(
 ) -> None:
     """Print metadata for a concept vector."""
 
-    record = _load_vector(vector_path)
+    record = load_vector(vector_path)
     console.print(json.dumps(record.metadata, indent=2))
     console.print(f"Vector shape: {tuple(record.vector.shape)}")
 

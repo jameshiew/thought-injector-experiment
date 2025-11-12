@@ -92,7 +92,8 @@ On 2025-11-12 we captured `vectors/aquariums_word_pharia.pt` via `capture-word` 
 
 Key switches:
 
-- `--start-match` finds the newline before your anchor string and automatically wires a closed window through the remainder of the sequence (set `--end_index` to cap it earlier, `--start_index/--end_index` for explicit token spans).
+- `--start-match` / `--end-match` find the newline before/after your anchor string (even for the Nth occurrence via `--start-occurrence` / `--end-occurrence`) so you can window Trial-by-Trial sections without counting tokens. Supplying just `--start-match` keeps the window open through the last generated token; add `--end-match` to clamp the span earlier or fall back to `--start_index/--end_index` for raw token math.
+- `--verbose` prints the resolved token span before sampling so you can sanity-check your anchors (pair it with `--strength 0.0` to confirm the mask is inert).
 - `--generated_only` restricts the injection to tokens beyond the prompt; useful when you only want to steer newly sampled text.
 - `--normalize/--scale-by` default to unit RMS + `scale-by=1.0`, which keeps strengths in a friendly `0.3–1.2` range. Set `--no-normalize` if you want raw vector magnitudes.
 - `--apply-all-tokens` still works for coarse steering, but windowed spans are usually more stable.
@@ -130,7 +131,20 @@ uv run thought-injector inspect-vector vectors/aquariums_word_pharia.pt
 
 - If you see repetition or ellipsis walls, drop the strength, move to a later layer, or keep `--normalize` enabled and reduce `--scale-by`.
 - Use `--generated_only` for minimal intrusion while debugging schedules.
-- To sanity-check window math, run with your `--start-match` (or explicit indices) plus `--strength 0.0`; the output should match the baseline exactly. Any divergence means the mask is off.
+- To sanity-check window math, run with your `--start-match`/`--end-match` anchors (or explicit indices) plus `--strength 0.0`; the output should match the baseline exactly. Any divergence means the mask is off.
 - Prefer `--include-prompt` only when you explicitly need the prefixed text; otherwise skip special tokens for easier diffing.
 - The hook finder assumes Llama-style decoder stacks (exposed as `model.layers` or `model.transformer.h`). Extending `_get_decoder_layers` is enough to support new architectures.
 - Keep a copy of at least one successful injection transcript (e.g., `injection_output.txt`) so you can confirm future code changes still recreate the same “aquariums” bias without retuning hyperparameters.
+
+## Development
+
+Helper code now lives in focused modules under `thought_injector/` so `cli.py` only wires Typer commands:
+
+- `app.py` exposes the shared Typer `app`, the Rich `console`, and the `typed_command` decorator.
+- `models.py` owns dtype/device resolution, tokenizer/model loading, and decoder-layer utilities.
+- `vectors.py` centralizes vector serialization, normalization, and model compatibility checks.
+- `injection.py` packages `InjectionSchedule` plus the forward-hook context manager.
+- `text_utils.py` maps textual anchors to tokenizer indices and includes the sweep diff helper.
+- `baseline.py` keeps the default noun/verb lists in one place so experiments and docs can share them.
+
+Add new behavior by extending those modules rather than growing `cli.py` back into a monolith.
