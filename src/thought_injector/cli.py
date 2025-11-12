@@ -12,6 +12,7 @@ import transformers.utils as _transformers_utils
 
 
 if not hasattr(_transformers_utils, "LossKwargs"):
+
     class _LossKwargs(TypedDict, total=False):  # type: ignore[misc]
         """Shim for older transformers builds lacking LossKwargs."""
 
@@ -39,7 +40,9 @@ def _resolve_dtype(name: str) -> torch.dtype:
     try:
         return DTYPE_MAP[name]
     except KeyError as exc:  # pragma: no cover - defensive.
-        raise typer.BadParameter(f"Unsupported dtype '{name}'. Choose from {list(DTYPE_MAP)}") from exc
+        raise typer.BadParameter(
+            f"Unsupported dtype '{name}'. Choose from {list(DTYPE_MAP)}"
+        ) from exc
 
 
 def _resolve_device(name: str) -> torch.device:
@@ -74,13 +77,17 @@ def _get_decoder_layers(model):
             layers = getattr(sub, layer_attr, None)
             if layers is not None:
                 return layers
-    raise RuntimeError("Could not locate decoder layers. This implementation currently supports Llama-style models.")
+    raise RuntimeError(
+        "Could not locate decoder layers. This implementation currently supports Llama-style models."
+    )
 
 
 def _resolve_layer(model, layer_index: int):
     layers = _get_decoder_layers(model)
     if layer_index < 0 or layer_index >= len(layers):
-        raise typer.BadParameter(f"layer-index must be in [0, {len(layers) - 1}] but got {layer_index}")
+        raise typer.BadParameter(
+            f"layer-index must be in [0, {len(layers) - 1}] but got {layer_index}"
+        )
     return layers[layer_index]
 
 
@@ -89,7 +96,9 @@ def _tokenize(tokenizer, prompt: str, device: torch.device):
     return {k: v.to(device) for k, v in encoded.items()}
 
 
-def _extract_hidden_state(model, tokenizer, prompt: str, layer_index: int, token_index: int, device: torch.device):
+def _extract_hidden_state(
+    model, tokenizer, prompt: str, layer_index: int, token_index: int, device: torch.device
+):
     inputs = _tokenize(tokenizer, prompt, device)
     with torch.no_grad():
         outputs = model(**inputs, output_hidden_states=True, use_cache=False)
@@ -130,7 +139,13 @@ def _broadcast_vector(vector: torch.Tensor, hidden_states: torch.Tensor) -> torc
     return vector.to(dtype=hidden_states.dtype, device=hidden_states.device)
 
 
-def _apply_injection(hidden_states: torch.Tensor, vector: torch.Tensor, token_index: Optional[int], strength: float, apply_all: bool):
+def _apply_injection(
+    hidden_states: torch.Tensor,
+    vector: torch.Tensor,
+    token_index: Optional[int],
+    strength: float,
+    apply_all: bool,
+):
     vector = strength * _broadcast_vector(vector, hidden_states)
     if apply_all:
         return hidden_states + vector
@@ -149,7 +164,14 @@ def _remix_output(output, mutate_fn):
     return output  # pragma: no cover - defensive fallback.
 
 
-def _register_injection(model, layer_index: int, vector: torch.Tensor, token_index: Optional[int], strength: float, apply_all: bool):
+def _register_injection(
+    model,
+    layer_index: int,
+    vector: torch.Tensor,
+    token_index: Optional[int],
+    strength: float,
+    apply_all: bool,
+):
     layer = _resolve_layer(model, layer_index)
 
     def hook(module, inputs, output):  # pylint: disable=unused-argument
@@ -162,7 +184,14 @@ def _register_injection(model, layer_index: int, vector: torch.Tensor, token_ind
 
 
 @contextmanager
-def injection_context(model, layer_index: int, vector: torch.Tensor, token_index: Optional[int], strength: float, apply_all: bool):
+def injection_context(
+    model,
+    layer_index: int,
+    vector: torch.Tensor,
+    token_index: Optional[int],
+    strength: float,
+    apply_all: bool,
+):
     handle = _register_injection(model, layer_index, vector, token_index, strength, apply_all)
     try:
         yield
@@ -189,8 +218,12 @@ def capture(
     positive_prompt: str = typer.Option(..., help="Prompt expected to activate the concept."),
     negative_prompt: str = typer.Option(..., help="Prompt without the concept."),
     layer_index: int = typer.Option(0, help="Decoder layer to sample (0-based)."),
-    token_index: int = typer.Option(-1, help="Token index (supports negatives for counting from the end)."),
-    output_path: Path = typer.Option(Path("vectors/concept.pt"), help="Where to store the concept vector."),
+    token_index: int = typer.Option(
+        -1, help="Token index (supports negatives for counting from the end)."
+    ),
+    output_path: Path = typer.Option(
+        Path("vectors/concept.pt"), help="Where to store the concept vector."
+    ),
     dtype: str = typer.Option("float16", help="torch dtype for model weights."),
     device: str = typer.Option("auto", help="Device identifier or 'auto'."),
 ):
@@ -200,8 +233,12 @@ def capture(
     torch_device = _resolve_device(device)
     model, tokenizer = _load_model_and_tokenizer(model_path, torch_dtype, torch_device)
 
-    pos_hidden = _extract_hidden_state(model, tokenizer, positive_prompt, layer_index, token_index, torch_device)
-    neg_hidden = _extract_hidden_state(model, tokenizer, negative_prompt, layer_index, token_index, torch_device)
+    pos_hidden = _extract_hidden_state(
+        model, tokenizer, positive_prompt, layer_index, token_index, torch_device
+    )
+    neg_hidden = _extract_hidden_state(
+        model, tokenizer, negative_prompt, layer_index, token_index, torch_device
+    )
     vector = (pos_hidden - neg_hidden).to(torch.float32)
 
     metadata = {
@@ -227,14 +264,18 @@ def run(
     layer_index: int = typer.Option(0, help="Layer to inject into."),
     token_index: int = typer.Option(-1, help="Token index for injection."),
     strength: float = typer.Option(1.0, help="Multiplier applied to the concept vector."),
-    apply_all_tokens: bool = typer.Option(False, help="If set, injects into every token in the sequence."),
+    apply_all_tokens: bool = typer.Option(
+        False, help="If set, injects into every token in the sequence."
+    ),
     max_new_tokens: int = typer.Option(128, help="Number of new tokens to sample."),
     temperature: float = typer.Option(0.0, help="Sampling temperature."),
     top_p: float = typer.Option(0.9, help="Top-p nucleus sampling."),
     dtype: str = typer.Option("float16", help="torch dtype for model weights."),
     device: str = typer.Option("auto", help="Device identifier or 'auto'."),
     seed: Optional[int] = typer.Option(None, help="Optional RNG seed for reproducibility."),
-    include_prompt: bool = typer.Option(False, help="Return the full decoded sequence (prompt + continuation)."),
+    include_prompt: bool = typer.Option(
+        False, help="Return the full decoded sequence (prompt + continuation)."
+    ),
 ):
     """Run the prompt with optional activation injection."""
 
@@ -254,7 +295,9 @@ def run(
             console.print(
                 f"[yellow]Warning:[/yellow] vector recorded from layer {metadata_layer}, but we will inject at layer {layer_index}."
             )
-        handle = _register_injection(model, layer_index, record.vector, token_index, strength, apply_all_tokens)
+        handle = _register_injection(
+            model, layer_index, record.vector, token_index, strength, apply_all_tokens
+        )
 
     try:
         inputs = _tokenize(tokenizer, prompt, torch_device)
