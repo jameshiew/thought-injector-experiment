@@ -3,22 +3,26 @@ name = "thought-injector"
 version = "0.1.0"
 description = "Local concept injection experiments for transformer LMs"
 readme = "README.md"
-authors = [{name = "Experimental Agent"}]
 requires-python = ">=3.11,<3.12"
+authors = [{ name = "Experimental Agent" }]
 dependencies = [
-    "torch>=2.4.0",
-    "transformers>=4.57.1",
-    "safetensors>=0.4.5",
-    "typer>=0.12.5",
-    "rich>=13.7.1",
-    "huggingface-hub>=0.34.0,<1.0"
+  "huggingface-hub>=0.34.0,<1.0",
+  "rich>=13.7.1",
+  "safetensors>=0.4.5",
+  "torch>=2.4.0",
+  "transformers>=4.57.1",
+  "typer>=0.12.5"
 ]
 
 [project.scripts]
 thought-injector = "thought_injector.cli:app"
 
-[tool.uv]
-package = true
+[tool.mypy]
+python_version = "3.11"
+strict = true
+ignore_missing_imports = true
+warn_unused_ignores = true
+disallow_untyped_defs = true
 
 [tool.ruff]
 target-version = "py311"
@@ -27,16 +31,20 @@ indent-width = 4
 extend-exclude = ["models", "vectors", "__pycache__"]
 # enforce modern Python
 lint.select = [
-    "E", "F", "W",  # flake8 core
-    "I",            # import sorting (isort)
-    "UP",           # pyupgrade
-    "N",            # pep8-naming
-    "B",            # bugbear
-    "C4",           # comprehensions
-    "SIM",          # simplify
-    "RUF",          # ruff-specific improvements
+  "E",
+  "F",
+  "W",  # flake8 core
+  "I",  # import sorting (isort)
+  "UP",  # pyupgrade
+  "N",  # pep8-naming
+  "B",  # bugbear
+  "C4",  # comprehensions
+  "SIM",  # simplify
+  "RUF",  # ruff-specific improvements
 ]
 lint.ignore = [
-    "E501",  # line length handled by formatter
+  "E501",  # line length handled by formatter
 ]
 
+[tool.uv]
+package = true
