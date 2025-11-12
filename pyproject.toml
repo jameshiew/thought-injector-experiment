@@ -4,13 +4,14 @@ version = "0.1.0"
 description = "Local concept injection experiments for transformer LMs"
 readme = "README.md"
 authors = [{name = "Experimental Agent"}]
-requires-python = ">=3.10"
+requires-python = ">=3.11,<3.12"
 dependencies = [
     "torch>=2.4.0",
     "transformers>=4.57.1",
     "safetensors>=0.4.5",
     "typer>=0.12.5",
-    "rich>=13.7.1"
+    "rich>=13.7.1",
+    "huggingface-hub>=0.34.0,<1.0"
 ]
 
 [project.scripts]
