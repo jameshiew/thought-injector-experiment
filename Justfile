@@ -4,3 +4,6 @@ check:
 
 fmt:
     uvx ruff format .
+
+audit:
+    uvx pip-audit
