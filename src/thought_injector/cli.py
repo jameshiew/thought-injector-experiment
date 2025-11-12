@@ -64,22 +64,6 @@ def _load_model_and_tokenizer(model_path: Path, dtype: torch.dtype, device: torc
     return model, tokenizer
 
 
-def _coalesce_model_path(positional: Optional[Path], option: Optional[Path]) -> Path:
-    """Accept either MODEL_PATH positional or --model-path option, not both."""
-    if positional is not None and option is not None and positional != option:
-        raise typer.BadParameter(
-            "Provide the model path once (either MODEL_PATH or --model-path), not both.",
-            param_hint="MODEL_PATH/--model-path",
-        )
-    resolved = option or positional
-    if resolved is None:
-        raise typer.BadParameter(
-            "Missing model path. Pass MODEL_PATH or --model-path.",
-            param_hint="MODEL_PATH/--model-path",
-        )
-    return resolved
-
-
 def _get_decoder_layers(model):
     candidates = ["model", "transformer", "base_model", "decoder"]
     for attr in candidates:
@@ -196,17 +180,11 @@ def _ensure_vector_matches_model(vector: torch.Tensor, model):
 
 @app.command()
 def capture(
-    model_path_arg: Optional[Path] = typer.Argument(
-        None,
-        help="Path to the local HF-format model directory (positional alternative to --model-path).",
-        show_default=False,
-    ),
-    model_path_option: Optional[Path] = typer.Option(
-        None,
+    model_path: Path = typer.Option(
+        ...,
         "--model-path",
         "-m",
-        help="Path to the local HF-format model directory (positional alternative: MODEL_PATH).",
-        show_default=False,
+        help="Path to the local HF-format model directory.",
     ),
     positive_prompt: str = typer.Option(..., help="Prompt expected to activate the concept."),
     negative_prompt: str = typer.Option(..., help="Prompt without the concept."),
@@ -218,7 +196,6 @@ def capture(
 ):
     """Capture a concept vector by differencing two prompts."""
 
-    model_path = _coalesce_model_path(model_path_arg, model_path_option)
     torch_dtype = _resolve_dtype(dtype)
     torch_device = _resolve_device(device)
     model, tokenizer = _load_model_and_tokenizer(model_path, torch_dtype, torch_device)
@@ -239,17 +216,11 @@ def capture(
 
 @app.command()
 def run(
-    model_path_arg: Optional[Path] = typer.Argument(
-        None,
-        help="Path to the local HF-format model directory (positional alternative to --model-path).",
-        show_default=False,
-    ),
-    model_path_option: Optional[Path] = typer.Option(
-        None,
+    model_path: Path = typer.Option(
+        ...,
         "--model-path",
         "-m",
-        help="Path to the local HF-format model directory (positional alternative: MODEL_PATH).",
-        show_default=False,
+        help="Path to the local HF-format model directory.",
     ),
     prompt: str = typer.Option(..., help="Prompt to feed the model."),
     vector_path: Optional[Path] = typer.Option(None, help="Optional concept vector to inject."),
@@ -267,7 +238,6 @@ def run(
 ):
     """Run the prompt with optional activation injection."""
 
-    model_path = _coalesce_model_path(model_path_arg, model_path_option)
     if seed is not None:
         torch.manual_seed(seed)
 
