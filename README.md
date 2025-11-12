@@ -5,7 +5,7 @@ Minimal tooling to reproduce the key concept-injection experiment from `DESIGN.m
 ## Prereqs
 
 1. Install `uv` (see the official docs if you do not already have it).
-2. Place or symlink your model directory locally. It must contain the usual Hugging Face files: `config.json`, `tokenizer.json`, and `.safetensors` weight shards.
+2. Place or symlink your model directory locally. The default setup assumes you've downloaded Pharia 1 Control into `models/pharia-1-control` via `python download.py pharia-1-control`, and that directory contains the usual Hugging Face files (`config.json`, `tokenizer.json`, `.safetensors`, etc.).
 
 ## Install
 
@@ -21,7 +21,7 @@ Use two prompts that differ only in the concept you care about. The command reco
 
 ```bash
 uv run thought-injector capture \
-  --model-path /path/to/local-model \
+  --model-path models/pharia-1-control \
   --positive-prompt "Tell me about aquariums." \
   --negative-prompt "Tell me about deserts." \
   --layer-index 20 \
@@ -37,7 +37,7 @@ Tips:
 
 ```bash
 uv run thought-injector run \
-  --model-path /path/to/local-model \
+  --model-path models/pharia-1-control \
   --prompt "We are about to start Trial 1..." \
   --vector-path vectors/aquarium.pt \
   --layer-index 20 \

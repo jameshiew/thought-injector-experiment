@@ -31,6 +31,28 @@ DTYPE_MAP = {
 }
 
 
+def _gpu_supports_bfloat16() -> bool:
+    """Return True when the primary CUDA device supports bfloat16."""
+
+    if not torch.cuda.is_available():
+        return False
+
+    is_bf16_supported = getattr(torch.cuda, "is_bf16_supported", None)
+    if callable(is_bf16_supported):
+        try:
+            if torch.cuda.is_bf16_supported():
+                return True
+        except RuntimeError:
+            return False
+
+    try:
+        capability = torch.cuda.get_device_capability()
+    except RuntimeError:
+        return False
+    # Ampere (sm80) or newer GPUs provide native bfloat16 support.
+    return capability[0] >= 8
+
+
 @dataclass
 class VectorRecord:
     vector: torch.Tensor
@@ -38,6 +60,9 @@ class VectorRecord:
 
 
 def _resolve_dtype(name: str) -> torch.dtype:
+    if name == "auto":
+        name = "bfloat16" if _gpu_supports_bfloat16() else "float16"
+        console.print(f"Auto-selecting torch dtype '{name}'.")
     try:
         return DTYPE_MAP[name]
     except KeyError as exc:  # pragma: no cover - defensive.
@@ -94,6 +119,7 @@ def _resolve_layer(model, layer_index: int):
 
 def _tokenize(tokenizer, prompt: str, device: torch.device):
     encoded = tokenizer(prompt, return_tensors="pt")
+    encoded.pop("token_type_ids", None)  # Decoder-only models typically reject this field.
     return {k: v.to(device) for k, v in encoded.items()}
 
 
@@ -225,17 +251,28 @@ def capture(
         str, typer.Option(..., help="Prompt expected to activate the concept.")
     ],
     negative_prompt: Annotated[str, typer.Option(..., help="Prompt without the concept.")],
-    layer_index: Annotated[int, typer.Option(0, help="Decoder layer to sample (0-based).")],
+    layer_index: Annotated[
+        int,
+        typer.Option(help="Decoder layer to sample (0-based)."),
+    ] = 0,
     token_index: Annotated[
         int,
-        typer.Option(-1, help="Token index (supports negatives for counting from the end)."),
-    ],
+        typer.Option(help="Token index (supports negatives for counting from the end)."),
+    ] = -1,
     output_path: Annotated[
         Path,
-        typer.Option(Path("vectors/concept.pt"), help="Where to store the concept vector."),
-    ],
-    dtype: Annotated[str, typer.Option("float16", help="torch dtype for model weights.")],
-    device: Annotated[str, typer.Option("auto", help="Device identifier or 'auto'.")],
+        typer.Option(help="Where to store the concept vector."),
+    ] = Path("vectors/concept.pt"),
+    dtype: Annotated[
+        str,
+        typer.Option(
+            help="Torch dtype for model weights; 'auto' picks bfloat16 when supported.",
+        ),
+    ] = "auto",
+    device: Annotated[
+        str,
+        typer.Option(help="Device identifier or 'auto'."),
+    ] = "auto",
 ):
     """Capture a concept vector by differencing two prompts."""
 
@@ -274,24 +311,55 @@ def run(
     ],
     prompt: Annotated[str, typer.Option(..., help="Prompt to feed the model.")],
     vector_path: Annotated[
-        Path | None, typer.Option(None, help="Optional concept vector to inject.")
-    ],
-    layer_index: Annotated[int, typer.Option(0, help="Layer to inject into.")],
-    token_index: Annotated[int, typer.Option(-1, help="Token index for injection.")],
-    strength: Annotated[float, typer.Option(1.0, help="Multiplier applied to the concept vector.")],
+        Path | None,
+        typer.Option(help="Optional concept vector to inject."),
+    ] = None,
+    layer_index: Annotated[
+        int,
+        typer.Option(help="Layer to inject into."),
+    ] = 0,
+    token_index: Annotated[
+        int,
+        typer.Option(help="Token index for injection."),
+    ] = -1,
+    strength: Annotated[
+        float,
+        typer.Option(help="Multiplier applied to the concept vector."),
+    ] = 1.0,
     apply_all_tokens: Annotated[
-        bool, typer.Option(False, help="If set, injects into every token in the sequence.")
-    ],
-    max_new_tokens: Annotated[int, typer.Option(128, help="Number of new tokens to sample.")],
-    temperature: Annotated[float, typer.Option(0.0, help="Sampling temperature.")],
-    top_p: Annotated[float, typer.Option(0.9, help="Top-p nucleus sampling.")],
-    dtype: Annotated[str, typer.Option("float16", help="torch dtype for model weights.")],
-    device: Annotated[str, typer.Option("auto", help="Device identifier or 'auto'.")],
-    seed: Annotated[int | None, typer.Option(None, help="Optional RNG seed for reproducibility.")],
+        bool,
+        typer.Option(help="If set, injects into every token in the sequence."),
+    ] = False,
+    max_new_tokens: Annotated[
+        int,
+        typer.Option(help="Number of new tokens to sample."),
+    ] = 128,
+    temperature: Annotated[
+        float,
+        typer.Option(help="Sampling temperature."),
+    ] = 0.0,
+    top_p: Annotated[
+        float,
+        typer.Option(help="Top-p nucleus sampling."),
+    ] = 0.9,
+    dtype: Annotated[
+        str,
+        typer.Option(
+            help="Torch dtype for model weights; 'auto' picks bfloat16 when supported.",
+        ),
+    ] = "auto",
+    device: Annotated[
+        str,
+        typer.Option(help="Device identifier or 'auto'."),
+    ] = "auto",
+    seed: Annotated[
+        int | None,
+        typer.Option(help="Optional RNG seed for reproducibility."),
+    ] = None,
     include_prompt: Annotated[
         bool,
-        typer.Option(False, help="Return the full decoded sequence (prompt + continuation)."),
-    ],
+        typer.Option(help="Return the full decoded sequence (prompt + continuation)."),
+    ] = False,
 ):
     """Run the prompt with optional activation injection."""
 
@@ -326,7 +394,11 @@ def run(
             eos_token_id=tokenizer.eos_token_id,
         )
         with torch.no_grad():
-            output_ids = model.generate(**inputs, generation_config=generation_config)
+            output_ids = model.generate(
+                **inputs,
+                generation_config=generation_config,
+                use_cache=False,
+            )
         text = tokenizer.decode(output_ids[0], skip_special_tokens=not include_prompt)
         console.print("=== Model Output ===")
         console.print(text)
