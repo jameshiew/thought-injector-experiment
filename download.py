@@ -11,7 +11,6 @@ import time
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Optional
 
 from huggingface_hub import HfApi
 from huggingface_hub.errors import HfHubHTTPError
@@ -23,7 +22,7 @@ SUFFIX_ALLOWLIST = (".json", ".py", ".safetensors", ".model", ".txt", ".pt")
 @dataclass(frozen=True)
 class FileSpec:
     name: str
-    sha256: Optional[str]
+    sha256: str | None
 
 
 STATIC_SPECS = {
@@ -89,7 +88,7 @@ def sha256sum(path: Path) -> str:
     return digest.hexdigest()
 
 
-def resolve_specs(repo_key: str, token: Optional[str]) -> tuple[FileSpec, ...]:
+def resolve_specs(repo_key: str, token: str | None) -> tuple[FileSpec, ...]:
     config = STATIC_SPECS[repo_key]
     if config["files"] is not None:
         return config["files"]  # type: ignore[return-value]
@@ -115,7 +114,7 @@ def resolve_specs(repo_key: str, token: Optional[str]) -> tuple[FileSpec, ...]:
     return tuple(specs)
 
 
-def download_file(repo_id: str, filename: str, dest: Path, token: Optional[str]) -> None:
+def download_file(repo_id: str, filename: str, dest: Path, token: str | None) -> None:
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = dest.with_suffix(dest.suffix + ".partial")
     url = f"https://huggingface.co/{repo_id}/resolve/main/{filename}?download=1"
@@ -146,7 +145,7 @@ def download_file(repo_id: str, filename: str, dest: Path, token: Optional[str])
 
 
 def ensure_file(
-    repo_id: str, spec: FileSpec, target_dir: Path, force: bool, token: Optional[str]
+    repo_id: str, spec: FileSpec, target_dir: Path, force: bool, token: str | None
 ) -> None:
     dest = target_dir / spec.name
     if dest.exists() and not force and spec.sha256:
@@ -164,7 +163,7 @@ def ensure_file(
             )
 
 
-def main(argv: Optional[list[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Download model assets from Hugging Face")
     parser.add_argument("model", choices=tuple(STATIC_SPECS.keys()))
     parser.add_argument("--models-dir", type=Path, default=Path("models"))

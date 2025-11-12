@@ -1,15 +1,16 @@
+from __future__ import annotations
+
 import json
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Optional, TypedDict
+from typing import Annotated, TypedDict
 
 import torch
+import transformers.utils as _transformers_utils
 import typer
 from rich.console import Console
 from transformers import AutoModelForCausalLM, AutoTokenizer, GenerationConfig
-import transformers.utils as _transformers_utils
-
 
 if not hasattr(_transformers_utils, "LossKwargs"):
 
@@ -33,7 +34,7 @@ DTYPE_MAP = {
 @dataclass
 class VectorRecord:
     vector: torch.Tensor
-    metadata: Dict[str, object]
+    metadata: dict[str, object]
 
 
 def _resolve_dtype(name: str) -> torch.dtype:
@@ -120,7 +121,7 @@ def _resolve_token_index(index: int, seq_len: int) -> int:
     return index
 
 
-def _save_vector(path: Path, vector: torch.Tensor, metadata: Dict[str, object]):
+def _save_vector(path: Path, vector: torch.Tensor, metadata: dict[str, object]):
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {"vector": vector, "metadata": metadata}
     torch.save(payload, path)
@@ -142,14 +143,16 @@ def _broadcast_vector(vector: torch.Tensor, hidden_states: torch.Tensor) -> torc
 def _apply_injection(
     hidden_states: torch.Tensor,
     vector: torch.Tensor,
-    token_index: Optional[int],
+    token_index: int | None,
     strength: float,
     apply_all: bool,
 ):
     vector = strength * _broadcast_vector(vector, hidden_states)
     if apply_all:
         return hidden_states + vector
-    resolved = _resolve_token_index(token_index or -1, hidden_states.shape[1])
+    resolved = _resolve_token_index(
+        token_index if token_index is not None else -1, hidden_states.shape[1]
+    )
     hidden_states = hidden_states.clone()
     hidden_states[:, resolved, :] += vector
     return hidden_states
@@ -168,7 +171,7 @@ def _register_injection(
     model,
     layer_index: int,
     vector: torch.Tensor,
-    token_index: Optional[int],
+    token_index: int | None,
     strength: float,
     apply_all: bool,
 ):
@@ -188,7 +191,7 @@ def injection_context(
     model,
     layer_index: int,
     vector: torch.Tensor,
-    token_index: Optional[int],
+    token_index: int | None,
     strength: float,
     apply_all: bool,
 ):
@@ -209,23 +212,30 @@ def _ensure_vector_matches_model(vector: torch.Tensor, model):
 
 @app.command()
 def capture(
-    model_path: Path = typer.Option(
-        ...,
-        "--model-path",
-        "-m",
-        help="Path to the local HF-format model directory.",
-    ),
-    positive_prompt: str = typer.Option(..., help="Prompt expected to activate the concept."),
-    negative_prompt: str = typer.Option(..., help="Prompt without the concept."),
-    layer_index: int = typer.Option(0, help="Decoder layer to sample (0-based)."),
-    token_index: int = typer.Option(
-        -1, help="Token index (supports negatives for counting from the end)."
-    ),
-    output_path: Path = typer.Option(
-        Path("vectors/concept.pt"), help="Where to store the concept vector."
-    ),
-    dtype: str = typer.Option("float16", help="torch dtype for model weights."),
-    device: str = typer.Option("auto", help="Device identifier or 'auto'."),
+    model_path: Annotated[
+        Path,
+        typer.Option(
+            ...,
+            "--model-path",
+            "-m",
+            help="Path to the local HF-format model directory.",
+        ),
+    ],
+    positive_prompt: Annotated[
+        str, typer.Option(..., help="Prompt expected to activate the concept.")
+    ],
+    negative_prompt: Annotated[str, typer.Option(..., help="Prompt without the concept.")],
+    layer_index: Annotated[int, typer.Option(0, help="Decoder layer to sample (0-based).")],
+    token_index: Annotated[
+        int,
+        typer.Option(-1, help="Token index (supports negatives for counting from the end)."),
+    ],
+    output_path: Annotated[
+        Path,
+        typer.Option(Path("vectors/concept.pt"), help="Where to store the concept vector."),
+    ],
+    dtype: Annotated[str, typer.Option("float16", help="torch dtype for model weights.")],
+    device: Annotated[str, typer.Option("auto", help="Device identifier or 'auto'.")],
 ):
     """Capture a concept vector by differencing two prompts."""
 
@@ -253,29 +263,35 @@ def capture(
 
 @app.command()
 def run(
-    model_path: Path = typer.Option(
-        ...,
-        "--model-path",
-        "-m",
-        help="Path to the local HF-format model directory.",
-    ),
-    prompt: str = typer.Option(..., help="Prompt to feed the model."),
-    vector_path: Optional[Path] = typer.Option(None, help="Optional concept vector to inject."),
-    layer_index: int = typer.Option(0, help="Layer to inject into."),
-    token_index: int = typer.Option(-1, help="Token index for injection."),
-    strength: float = typer.Option(1.0, help="Multiplier applied to the concept vector."),
-    apply_all_tokens: bool = typer.Option(
-        False, help="If set, injects into every token in the sequence."
-    ),
-    max_new_tokens: int = typer.Option(128, help="Number of new tokens to sample."),
-    temperature: float = typer.Option(0.0, help="Sampling temperature."),
-    top_p: float = typer.Option(0.9, help="Top-p nucleus sampling."),
-    dtype: str = typer.Option("float16", help="torch dtype for model weights."),
-    device: str = typer.Option("auto", help="Device identifier or 'auto'."),
-    seed: Optional[int] = typer.Option(None, help="Optional RNG seed for reproducibility."),
-    include_prompt: bool = typer.Option(
-        False, help="Return the full decoded sequence (prompt + continuation)."
-    ),
+    model_path: Annotated[
+        Path,
+        typer.Option(
+            ...,
+            "--model-path",
+            "-m",
+            help="Path to the local HF-format model directory.",
+        ),
+    ],
+    prompt: Annotated[str, typer.Option(..., help="Prompt to feed the model.")],
+    vector_path: Annotated[
+        Path | None, typer.Option(None, help="Optional concept vector to inject.")
+    ],
+    layer_index: Annotated[int, typer.Option(0, help="Layer to inject into.")],
+    token_index: Annotated[int, typer.Option(-1, help="Token index for injection.")],
+    strength: Annotated[float, typer.Option(1.0, help="Multiplier applied to the concept vector.")],
+    apply_all_tokens: Annotated[
+        bool, typer.Option(False, help="If set, injects into every token in the sequence.")
+    ],
+    max_new_tokens: Annotated[int, typer.Option(128, help="Number of new tokens to sample.")],
+    temperature: Annotated[float, typer.Option(0.0, help="Sampling temperature.")],
+    top_p: Annotated[float, typer.Option(0.9, help="Top-p nucleus sampling.")],
+    dtype: Annotated[str, typer.Option("float16", help="torch dtype for model weights.")],
+    device: Annotated[str, typer.Option("auto", help="Device identifier or 'auto'.")],
+    seed: Annotated[int | None, typer.Option(None, help="Optional RNG seed for reproducibility.")],
+    include_prompt: Annotated[
+        bool,
+        typer.Option(False, help="Return the full decoded sequence (prompt + continuation)."),
+    ],
 ):
     """Run the prompt with optional activation injection."""
 
@@ -320,7 +336,9 @@ def run(
 
 
 @app.command()
-def inspect_vector(vector_path: Path = typer.Argument(..., help="Path to a saved vector.")):
+def inspect_vector(
+    vector_path: Annotated[Path, typer.Argument(..., help="Path to a saved vector.")],
+):
     """Print metadata for a concept vector."""
 
     record = _load_vector(vector_path)
