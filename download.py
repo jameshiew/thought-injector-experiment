@@ -16,7 +16,7 @@ from huggingface_hub import HfApi
 from huggingface_hub.errors import HfHubHTTPError
 
 CHUNK_SIZE = 1 << 20  # 1 MiB
-SUFFIX_ALLOWLIST = (".json", ".py", ".safetensors", ".model", ".txt", ".pt")
+SUFFIX_ALLOWLIST = (".json", ".py", ".safetensors", ".model", ".txt", ".pt", ".bin")
 
 
 @dataclass(frozen=True)
@@ -148,11 +148,15 @@ def ensure_file(
     repo_id: str, spec: FileSpec, target_dir: Path, force: bool, token: str | None
 ) -> None:
     dest = target_dir / spec.name
-    if dest.exists() and not force and spec.sha256:
-        if sha256sum(dest) == spec.sha256:
-            print(f"[skip] {spec.name} already verified")
+    if dest.exists() and not force:
+        if spec.sha256:
+            if sha256sum(dest) == spec.sha256:
+                print(f"[skip] {spec.name} already verified")
+                return
+            print(f"[warn] {spec.name} hash mismatch; redownloading")
+        else:
+            print(f"[skip] {spec.name} already present")
             return
-        print(f"[warn] {spec.name} hash mismatch; redownloading")
 
     download_file(repo_id, spec.name, dest, token)
     if spec.sha256:

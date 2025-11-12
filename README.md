@@ -1,6 +1,6 @@
 # thought-injector
 
-Minimal tooling to reproduce the key concept-injection experiment from `DESIGN.md` with a local Hugging Face–format model (e.g., weights stored as `.safetensors`). Everything is wired through [`uv`](https://github.com/astral-sh/uv`) so you can manage dependencies without touching global interpreters.
+Minimal tooling to reproduce the key concept-injection experiment from `DESIGN.md` with a local Hugging Face–format model (e.g., weights stored as `.safetensors`). Everything is wired through [`uv`](https://github.com/astral-sh/uv) so you can manage dependencies without touching global interpreters.
 
 ## Prereqs
 
@@ -30,7 +30,7 @@ uv run thought-injector capture-word \
   --layer-index 20 \
   --token-index -1 \
   --baseline-count 100 \
-  --output-path vectors/aquariums.pt
+  --output-path vectors/aquariums_word_pharia.pt
 ```
 
 You can supply your own newline-delimited baseline list via `--baseline-path`. The built-in list is derived from the nouns/verbs described in `DESIGN.md` and filters out the target word automatically.
@@ -46,7 +46,7 @@ uv run thought-injector capture \
   --negative-prompt "Tell me about deserts." \
   --layer-index 20 \
   --token-index -1 \
-  --output-path vectors/aquarium.pt
+  --output-path vectors/aquariums_contrast.pt
 ```
 
 ## 2. Baseline vs. injection runs
@@ -63,8 +63,11 @@ uv run thought-injector run \
   --strength 0.0 \
   --max-new-tokens 200 \
   --temperature 0.0 \
-  --dtype auto
+  --dtype auto \
+  --seed 0
 ```
+
+Running the same command with `--vector-path vectors/aquariums_word_pharia.pt` and `--strength 0.0` is a convenient mask sanity check: `0.0` strength guarantees a null injection even when a vector is supplied.
 
 ### Injection beginning at “Trial 1”
 
@@ -79,7 +82,8 @@ uv run thought-injector run \
   --max-new-tokens 200 \
   --temperature 0.0 \
   --normalize --scale-by 1.0 \
-  --dtype auto
+  --dtype auto \
+  --seed 0
 ```
 
 ### Demonstrated behavior shift
@@ -105,7 +109,7 @@ Quickly explore layer × strength grids and log outputs/diff stats to CSV:
 uv run thought-injector sweep \
   -m models/pharia-1-control \
   --prompt "$(cat prompts/injected_thought.txt)" \
-  --vector-path vectors/aquariums.pt \
+  --vector-path vectors/aquariums_word_pharia.pt \
   --layer-index 12 --layer-index 16 --layer-index 20 --layer-index 24 --layer-index 25 \
   --strength 0.3 --strength 0.6 --strength 0.9 --strength 1.2 \
   --start-match "Trial 1:" \
@@ -119,7 +123,7 @@ Each row includes the raw text plus a boolean `changed` flag computed from a na�
 ## 4. Inspect saved vectors
 
 ```bash
-uv run thought-injector inspect-vector vectors/aquariums.pt
+uv run thought-injector inspect-vector vectors/aquariums_word_pharia.pt
 ```
 
 ## Troubleshooting & guardrails

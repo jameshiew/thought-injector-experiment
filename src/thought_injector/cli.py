@@ -492,6 +492,21 @@ def _locate_start_match(prompt: str, match: str) -> int:
     return newline_index if newline_index != -1 else match_index
 
 
+def _flatten_first_sequence(values: Any) -> Any:
+    if isinstance(values, torch.Tensor):
+        # Coerce to CPU ints to simplify downstream logic.
+        values = values.squeeze(0).tolist()
+    if isinstance(values, list):
+        if values and isinstance(values[0], list):  # Strip batch dimension.
+            return values[0]
+        return values
+    if isinstance(values, tuple):
+        if values and isinstance(values[0], (list, tuple)):
+            return list(values[0])
+        return list(values)
+    return values
+
+
 def _token_index_from_char(tokenizer: PreTrainedTokenizerBase, prompt: str, char_index: int) -> int:
     encoding = tokenizer(
         prompt,
@@ -499,18 +514,30 @@ def _token_index_from_char(tokenizer: PreTrainedTokenizerBase, prompt: str, char
         return_offsets_mapping=True,
     )
     offsets = encoding.get("offset_mapping")
-    if offsets is None:
-        raise typer.BadParameter("Tokenizer must provide offset_mapping for --start-match.")
-    offsets_seq = offsets[0] if offsets and isinstance(offsets[0], list) else offsets
+    offsets_seq = None
+    if offsets is not None:
+        offsets_seq = _flatten_first_sequence(offsets)
 
-    for idx, (start, end) in enumerate(offsets_seq):
-        if start <= char_index < end:
-            return idx
-    if char_index >= len(prompt):
-        return len(offsets_seq) - 1
-    raise typer.BadParameter(
-        "Could not map character offset to a tokenizer index; check --start-match anchor."
-    )
+    if offsets_seq is not None:
+        for idx, (start, end) in enumerate(offsets_seq):
+            if start <= char_index < end:
+                return idx
+        if char_index >= len(prompt):
+            return len(offsets_seq) - 1
+        raise typer.BadParameter(
+            "Could not map character offset to a tokenizer index; check --start-match anchor."
+        )
+
+    # Slow-tokenizer fallback: tokenize the prefix (inclusive) and count tokens.
+    prefix_end = min(char_index + 1, len(prompt))
+    prefix = prompt[:prefix_end]
+    prefix_tokens = tokenizer(prefix, add_special_tokens=True).get("input_ids")
+    prefix_seq = _flatten_first_sequence(prefix_tokens)
+    if not isinstance(prefix_seq, list):
+        raise typer.BadParameter(
+            "Tokenizer must return list-based encodings for --start-match fallback."
+        )
+    return max(len(prefix_seq) - 1, 0)
 
 
 def _resolve_start_match_token_index(
