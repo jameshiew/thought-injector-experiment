@@ -7,3 +7,6 @@ fmt:
 
 audit:
     uvx pip-audit
+
+test:
+    uvx pytest
