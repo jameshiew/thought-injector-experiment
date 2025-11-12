@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Download Phi-4 model assets into the local models/ directory."""
+"""Download supported Hugging Face model assets into the local models/ directory."""
 
 from __future__ import annotations
 
@@ -27,6 +27,10 @@ class FileSpec:
 
 
 STATIC_SPECS = {
+    "pharia-1-control": {
+        "repo_id": "Aleph-Alpha/Pharia-1-LLM-7B-control-hf",
+        "files": None,  # Enumerated dynamically; repo is fully public.
+    },
     "phi-4-mini-instruct": {
         "repo_id": "microsoft/Phi-4-mini-instruct",
         "files": (
@@ -131,7 +135,7 @@ def ensure_file(repo_id: str, spec: FileSpec, target_dir: Path, force: bool, tok
 
 
 def main(argv: Optional[list[str]] = None) -> int:
-    parser = argparse.ArgumentParser(description="Download Phi-4 model assets")
+    parser = argparse.ArgumentParser(description="Download model assets from Hugging Face")
     parser.add_argument("model", choices=tuple(STATIC_SPECS.keys()))
     parser.add_argument("--models-dir", type=Path, default=Path("models"))
     parser.add_argument("--force", action="store_true")
