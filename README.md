@@ -134,7 +134,8 @@ uv run thought-injector inspect-vector vectors/aquariums_word_pharia.pt
 - Use `--generated_only` for minimal intrusion while debugging schedules.
 - To sanity-check window math, run with your `--start-match`/`--end-match` anchors (or explicit indices) plus `--strength 0.0`; the output should match the baseline exactly. Any divergence means the mask is off.
 - Prefer `--include-prompt` only when you explicitly need the prefixed text; otherwise skip special tokens for easier diffing.
-- Typer 0.12.x currently expects Click 8.1.x. Click 8.3.0 changed how boolean flags are detected and causes `Secondary flag is not valid for non-boolean flag.` crashes whenever you reuse `--normalize/--no-normalize`. If you accidentally upgrade Click, re-run `uv sync` to restore the pinned `click>=8.1,<8.2` range.
+- Typer 0.20.0 still expects Click 8.1.x. Click 8.3.0 changed how boolean flags are detected and causes `Secondary flag is not valid for non-boolean flag.` crashes whenever you reuse `--normalize/--no-normalize`. If you accidentally upgrade Click, run `uv sync` to restore the `click>=8.1.8,<8.2` guard.
+- Transformers 4.57.1 currently requires `huggingface-hub<1.0`, so we pin the client to the newest sub-1.0 release (`huggingface-hub>=0.36.0,<1.0`). If you yank that constraint you’ll get resolver failures until Transformers 5.0 lifts the cap.
 - The hook finder assumes Llama-style decoder stacks (exposed as `model.layers` or `model.transformer.h`). Extending `_get_decoder_layers` is enough to support new architectures.
 - Set `TI_DEBUG_STRICT=1` (or any truthy value) to assert that the hooked residual stream tensors stay shape `[batch, tokens, hidden]` and that the hidden width matches your concept vector before every injection.
 - Keep a copy of at least one successful injection transcript (e.g., `injection_output.txt`) so you can confirm future code changes still recreate the same “aquariums” bias without retuning hyperparameters.
