@@ -9,6 +9,7 @@ import torch
 import typer
 from transformers.tokenization_utils_base import BatchEncoding, PreTrainedTokenizerBase
 
+from thought_injector.injection import InjectionSchedule
 from thought_injector.spans import AnchorError, locate_end_anchor, locate_start_anchor
 
 
@@ -41,6 +42,28 @@ class WindowSpec:
         if start_idx is not None and end_idx is None:
             end_idx = -1
         return start_idx, end_idx
+
+    def build_schedule(
+        self,
+        *,
+        tokenizer: PreTrainedTokenizerBase,
+        prompt: str,
+        token_index: int | None,
+        apply_all_tokens: bool,
+        generated_only: bool,
+        prompt_length: int,
+    ) -> InjectionSchedule:
+        """Resolve the window spec and materialize an InjectionSchedule."""
+
+        window_start, window_end = self.resolve(tokenizer, prompt)
+        return InjectionSchedule(
+            apply_all=apply_all_tokens,
+            single_index=token_index,
+            window_start=window_start,
+            window_end=window_end,
+            generated_only=generated_only,
+            prompt_length=prompt_length,
+        )
 
     def _resolve_start(self, tokenizer: PreTrainedTokenizerBase, prompt: str) -> int | None:
         if self.start_match is None:

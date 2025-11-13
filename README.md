@@ -149,6 +149,11 @@ Helper code now lives in focused modules under `thought_injector/` so `cli.py` o
 - `text_utils.py` maps textual anchors to tokenizer indices and includes the sweep diff helper.
 - `baseline.py` keeps the default noun/verb lists in one place so experiments and docs can share them.
 
+Two helpers worth calling out when extending the CLI or writing new tooling:
+
+- `WindowSpec.build_schedule(...)` resolves your textual/indexed window flags and returns a ready-to-use `InjectionSchedule`, so there is no reason to duplicate the anchor math in Typer commands.
+- `load_prepared_vector(path, model, normalize=..., scale_by=...)` loads, validates, normalizes, and scales a concept vector in one call while handing back the original metadata for logging/warnings.
+
 Validation note: persisted vectors and `InjectionSchedule` definitions are now Pydantic models (`VectorMetadata`, `VectorPayload`, `InjectionSchedule`). Import and extend those instead of rolling your own dicts so custom tooling keeps benefitting from the schema-level checks.
 
 Add new behavior by extending those modules rather than growing `cli.py` back into a monolith.

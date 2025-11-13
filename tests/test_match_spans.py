@@ -135,3 +135,27 @@ def test_window_spec_leaves_indices_none_when_unset() -> None:
     start_idx, end_idx = spec.resolve(tokenizer, PROMPT)
     assert start_idx is None
     assert end_idx is None
+
+
+def test_window_spec_build_schedule_resolves_window_and_prompt_length() -> None:
+    tokenizer = CharTokenizer()
+    spec = WindowSpec(start_match="Trial 1:", end_match="Trial 2:")
+    spec.validate()
+
+    prompt_length = len(PROMPT)
+    schedule = spec.build_schedule(
+        tokenizer=tokenizer,
+        prompt=PROMPT,
+        token_index=None,
+        apply_all_tokens=False,
+        generated_only=False,
+        prompt_length=prompt_length,
+    )
+
+    expected_start = PROMPT.rfind("\n", 0, PROMPT.find("Trial 1:"))
+    trial2_end = PROMPT.find("Trial 2:") + len("Trial 2:")
+    expected_end = PROMPT.find("\n", trial2_end)
+
+    assert schedule.window_start == expected_start
+    assert schedule.window_end == expected_end
+    assert schedule.prompt_length == prompt_length

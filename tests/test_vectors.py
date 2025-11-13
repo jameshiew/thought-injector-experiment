@@ -7,7 +7,12 @@ import pytest
 import torch
 import typer
 
-from thought_injector.vectors import ensure_vector_matches_model, load_vector, save_vector
+from thought_injector.vectors import (
+    ensure_vector_matches_model,
+    load_prepared_vector,
+    load_vector,
+    save_vector,
+)
 
 
 def test_save_and_load_vector_round_trip(tmp_path: Path) -> None:
@@ -42,3 +47,27 @@ def test_ensure_vector_matches_model_rejects_non_1d_vectors() -> None:
 
     with pytest.raises(typer.BadParameter):
         ensure_vector_matches_model(vector, model)
+
+
+def test_load_prepared_vector_normalizes_and_scales(tmp_path: Path) -> None:
+    path = tmp_path / "prepared.pt"
+    vector = torch.tensor([1.0, 3.0, 5.0], dtype=torch.float32)
+    save_vector(path, vector, {"layer_index": 0})
+
+    model = SimpleNamespace(config=SimpleNamespace(hidden_size=3))
+    prepared = load_prepared_vector(path, model, normalize=True, scale_by=2.0)
+
+    rms = torch.sqrt(torch.mean(vector**2))
+    expected = (vector / rms) * 2.0
+    assert torch.allclose(prepared.tensor, expected)
+    assert prepared.metadata.layer_index == 0
+
+
+def test_load_prepared_vector_validates_hidden_size(tmp_path: Path) -> None:
+    path = tmp_path / "mismatch.pt"
+    vector = torch.tensor([1.0, 2.0], dtype=torch.float32)
+    save_vector(path, vector, {"layer_index": 0})
+
+    model = SimpleNamespace(config=SimpleNamespace(hidden_size=3))
+    with pytest.raises(typer.BadParameter):
+        load_prepared_vector(path, model, normalize=False, scale_by=1.0)

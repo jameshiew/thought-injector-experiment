@@ -42,6 +42,14 @@ class VectorRecord:
     metadata: VectorMetadata
 
 
+@dataclass
+class PreparedVector:
+    """Wrapper bundling a normalized vector with its original metadata."""
+
+    tensor: torch.Tensor
+    metadata: VectorMetadata
+
+
 def save_vector(
     path: Path, vector: torch.Tensor, metadata: Mapping[str, Any] | VectorMetadata
 ) -> None:
@@ -73,6 +81,21 @@ def load_vector(path: Path) -> VectorRecord:
     except ValidationError as err:
         raise typer.BadParameter(f"Vector file {path} is invalid: {err}") from err
     return VectorRecord(vector=validated.vector, metadata=validated.metadata)
+
+
+def load_prepared_vector(
+    path: Path,
+    model: PreTrainedModel,
+    *,
+    normalize: bool,
+    scale_by: float,
+) -> PreparedVector:
+    """Load, validate, and scale a concept vector for a specific model."""
+
+    record = load_vector(path)
+    ensure_vector_matches_model(record.vector, model)
+    tensor = prepare_vector(record.vector, normalize, scale_by)
+    return PreparedVector(tensor=tensor, metadata=record.metadata)
 
 
 def broadcast_vector(vector: torch.Tensor, hidden_states: torch.Tensor) -> torch.Tensor:

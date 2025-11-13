@@ -13,7 +13,7 @@ from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 
 from thought_injector.app import app, console, typed_command
 from thought_injector.baseline import load_baseline_words
-from thought_injector.injection import InjectionSchedule, injection_context
+from thought_injector.injection import injection_context
 from thought_injector.models import (
     clone_inputs,
     extract_hidden_state,
@@ -25,12 +25,7 @@ from thought_injector.models import (
     tokenize,
 )
 from thought_injector.text_utils import WindowSpec, diff_length
-from thought_injector.vectors import (
-    ensure_vector_matches_model,
-    load_vector,
-    prepare_vector,
-    save_vector,
-)
+from thought_injector.vectors import load_prepared_vector, load_vector, save_vector
 
 if TYPE_CHECKING:
 
@@ -58,6 +53,25 @@ def _decode_output(
 ) -> str:
     decode_fn = cast(DecodeFn, tokenizer.decode)
     return decode_fn(token_ids, skip_special_tokens=not include_prompt)
+
+
+def _build_generation_config(
+    tokenizer: PreTrainedTokenizerBase,
+    *,
+    max_new_tokens: int,
+    temperature: float,
+    top_p: float,
+) -> GenerationConfig:
+    pad_token_id = cast(int | None, getattr(tokenizer, "pad_token_id", None))
+    eos_token_id = cast(int | None, getattr(tokenizer, "eos_token_id", None))
+    return GenerationConfig(
+        max_new_tokens=max_new_tokens,
+        temperature=max(temperature, 1e-8),
+        top_p=top_p,
+        do_sample=temperature > 0,
+        pad_token_id=pad_token_id,
+        eos_token_id=eos_token_id,
+    )
 
 
 SWEEP_LAYER_OPTION = typer.Option(
@@ -358,13 +372,11 @@ def run(
     inputs = tokenize(tokenizer, prompt, torch_device)
     prompt_length = inputs["input_ids"].shape[1]
 
-    resolved_start_index, resolved_end_index = window_spec.resolve(tokenizer, prompt)
-
-    schedule = InjectionSchedule(
-        apply_all=apply_all_tokens,
-        single_index=token_index,
-        window_start=resolved_start_index,
-        window_end=resolved_end_index,
+    schedule = window_spec.build_schedule(
+        tokenizer=tokenizer,
+        prompt=prompt,
+        token_index=token_index,
+        apply_all_tokens=apply_all_tokens,
         generated_only=generated_only,
         prompt_length=prompt_length,
     )
@@ -390,24 +402,23 @@ def run(
                 f"[cyan]Resolved token span:[/cyan] {span_start}..{span_end}{note_suffix}"
             )
 
-    pad_token_id = cast(int | None, getattr(tokenizer, "pad_token_id", None))
-    eos_token_id = cast(int | None, getattr(tokenizer, "eos_token_id", None))
-
-    generation_config = GenerationConfig(
+    generation_config = _build_generation_config(
+        tokenizer,
         max_new_tokens=max_new_tokens,
-        temperature=max(temperature, 1e-8),
+        temperature=temperature,
         top_p=top_p,
-        do_sample=temperature > 0,
-        pad_token_id=pad_token_id,
-        eos_token_id=eos_token_id,
     )
 
     vector_tensor: torch.Tensor | None = None
     if vector_path is not None:
-        record = load_vector(vector_path)
-        ensure_vector_matches_model(record.vector, model)
-        vector_tensor = prepare_vector(record.vector, normalize, scale_by)
-        metadata_layer = record.metadata.layer_index
+        prepared_vector = load_prepared_vector(
+            vector_path,
+            model,
+            normalize=normalize,
+            scale_by=scale_by,
+        )
+        vector_tensor = prepared_vector.tensor
+        metadata_layer = prepared_vector.metadata.layer_index
         if metadata_layer is not None and metadata_layer != layer_index:
             total_layers = len(get_decoder_layers(model))
             console.print(
@@ -565,32 +576,29 @@ def sweep(
     base_inputs = tokenize(tokenizer, prompt, torch_device)
     prompt_length = base_inputs["input_ids"].shape[1]
 
-    resolved_start_index, resolved_end_index = window_spec.resolve(tokenizer, prompt)
-
-    schedule = InjectionSchedule(
-        apply_all=apply_all_tokens,
-        single_index=token_index,
-        window_start=resolved_start_index,
-        window_end=resolved_end_index,
+    schedule = window_spec.build_schedule(
+        tokenizer=tokenizer,
+        prompt=prompt,
+        token_index=token_index,
+        apply_all_tokens=apply_all_tokens,
         generated_only=generated_only,
         prompt_length=prompt_length,
     )
 
-    pad_token_id = cast(int | None, getattr(tokenizer, "pad_token_id", None))
-    eos_token_id = cast(int | None, getattr(tokenizer, "eos_token_id", None))
-
-    generation_config = GenerationConfig(
+    generation_config = _build_generation_config(
+        tokenizer,
         max_new_tokens=max_new_tokens,
-        temperature=max(temperature, 1e-8),
+        temperature=temperature,
         top_p=top_p,
-        do_sample=temperature > 0,
-        pad_token_id=pad_token_id,
-        eos_token_id=eos_token_id,
     )
 
-    record = load_vector(vector_path)
-    ensure_vector_matches_model(record.vector, model)
-    vector_tensor = prepare_vector(record.vector, normalize, scale_by)
+    prepared_vector = load_prepared_vector(
+        vector_path,
+        model,
+        normalize=normalize,
+        scale_by=scale_by,
+    )
+    vector_tensor = prepared_vector.tensor
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
