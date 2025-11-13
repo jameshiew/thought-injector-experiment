@@ -5,7 +5,7 @@ Minimal tooling to reproduce the key concept-injection experiment from `DESIGN.m
 ## Prereqs
 
 1. Install `uv` (see the official docs if you do not already have it).
-2. Place or symlink your model directory locally. The default setup assumes you've downloaded Pharia 1 Control into `models/pharia-1-control` via `uv run python download.py pharia-1-control`, and that directory contains the usual Hugging Face files (`config.json`, `tokenizer.json`, `.safetensors`, etc.).
+2. Place or symlink your model directory locally. Run `uv run python download.py <model>` to mirror a supported repo into `models/<model>`. We default to Pharia 1 Control (`uv run python download.py pharia-1-control`), but the helper also understands `llama-3.1-8b-instruct`, `phi-4-mini-instruct`, and `phi-4`. Meta Llama repos are gated, so set `HF_TOKEN` or pass `--token` when downloading that checkpoint.
 
 ## Install
 

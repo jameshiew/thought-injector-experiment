@@ -36,6 +36,10 @@ STATIC_SPECS: dict[str, StaticSpec] = {
         "repo_id": "Aleph-Alpha/Pharia-1-LLM-7B-control-hf",
         "files": None,  # Enumerated dynamically; repo is fully public.
     },
+    "llama-3.1-8b-instruct": {
+        "repo_id": "meta-llama/Llama-3.1-8B-Instruct",
+        "files": None,  # Requires a gated token; enumerate dynamically once authenticated.
+    },
     "phi-4-mini-instruct": {
         "repo_id": "microsoft/Phi-4-mini-instruct",
         "files": (
