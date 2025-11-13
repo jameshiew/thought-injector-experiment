@@ -146,23 +146,20 @@ def download_file(repo_id: str, filename: str, dest: Path, token: str | None) ->
     downloaded = 0
     total = 0
     try:
-        try:
-            with urllib.request.urlopen(request) as response, tmp_path.open("wb") as handle:
-                total = int(response.headers.get("Content-Length", "0"))
-                while True:
-                    chunk = response.read(CHUNK_SIZE)
-                    if not chunk:
-                        break
-                    handle.write(chunk)
-                    downloaded += len(chunk)
-                    if total:
-                        pct = downloaded * 100 // total
-                        sys.stdout.write(
-                            f"\r    {downloaded / (1 << 20):.2f} MiB / {total / (1 << 20):.2f} MiB ({pct}%)"
-                        )
-                        sys.stdout.flush()
-        except Exception:
-            raise
+        with urllib.request.urlopen(request) as response, tmp_path.open("wb") as handle:
+            total = int(response.headers.get("Content-Length", "0"))
+            while True:
+                chunk = response.read(CHUNK_SIZE)
+                if not chunk:
+                    break
+                handle.write(chunk)
+                downloaded += len(chunk)
+                if total:
+                    pct = downloaded * 100 // total
+                    sys.stdout.write(
+                        f"\r    {downloaded / (1 << 20):.2f} MiB / {total / (1 << 20):.2f} MiB ({pct}%)"
+                    )
+                    sys.stdout.flush()
         tmp_path.rename(dest)
     finally:
         if tmp_path.exists():

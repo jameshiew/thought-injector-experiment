@@ -32,6 +32,8 @@ class LastHiddenStateOutput(Protocol):
     last_hidden_state: torch.Tensor | None
 
 
+# Hugging Face outputs span tensors, tuples, and mapping-like containers; keep the union
+# intentionally wide and let _remix_output_dict handle nested dict variants.
 OutputLike = (
     LastHiddenStateOutput | torch.Tensor | tuple[torch.Tensor, ...] | MutableMapping[str, Any]
 )

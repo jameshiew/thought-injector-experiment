@@ -576,8 +576,8 @@ def sweep(
         Path,
         typer.Option(..., help="Concept vector to inject during the sweep."),
     ],
-    layer_indices: Annotated[list[int], SWEEP_LAYER_OPTION] = [],
-    strengths: Annotated[list[float], SWEEP_STRENGTH_OPTION] = [],
+    layer_indices: Annotated[list[int] | None, SWEEP_LAYER_OPTION] = None,
+    strengths: Annotated[list[float] | None, SWEEP_STRENGTH_OPTION] = None,
     token_index: Annotated[
         int | None,
         typer.Option(help="Token index for single-token injection (omit for default behavior)."),
@@ -646,9 +646,11 @@ def sweep(
 
     if seed is not None:
         _seed_rng(seed)
-    if not layer_indices:
+    layer_indices_list = list(layer_indices or [])
+    strengths_list = list(strengths or [])
+    if not layer_indices_list:
         raise typer.BadParameter("Provide at least one --layer-index for the sweep.")
-    if not strengths:
+    if not strengths_list:
         raise typer.BadParameter("Provide at least one --strength for the sweep.")
 
     torch_dtype = resolve_dtype(dtype)
@@ -712,8 +714,8 @@ def sweep(
         }
     ]
 
-    for layer_idx in layer_indices:
-        for strength_value in strengths:
+    for layer_idx in layer_indices_list:
+        for strength_value in strengths_list:
             trial_text = _generate_text(layer_idx=layer_idx, strength_value=strength_value)
             diff_len = diff_length(baseline_text, trial_text)
             rows.append(
