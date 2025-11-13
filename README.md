@@ -92,6 +92,29 @@ uv run thought-injector run \
 
 On 2025-11-12 we captured `vectors/aquariums_word_pharia.pt` via `capture-word` and ran the two commands above (with `--strength 0.0` for the baseline, `--strength 0.8` for the injected case). The baseline transcript remained neutral, but the injected run immediately pivoted to “You have aquariums. Aquariums are where they keep their tanks.” when Trial 1 began. That transcript lives in `injection_output.txt` inside the repo if you want to diff it later. Repeating the process with fresh seeds reliably reproduces the same “aquariums” bias, so this is now our canonical sanity check that the hook + windowing stack is working.
 
+#### LOUD concept threshold (2025-11-13)
+
+- Captured both `vectors/loud_word_pharia.pt` (requested uppercase casing) and `vectors/loud_lower_word_pharia.pt` via `capture-word --layer-index 20 --token-index -1 --baseline-count 100`.
+- Injecting the uppercase vector at any reasonable strength keeps the transcript identical to baseline until the decoder collapses into repeating `LLOLOL` strings (≥1.0 strength), so it does not yield a semantic loudness cue.
+- The lowercase vector produces the first detectable-but-subtle “loud” mention at layer 20 with strengths in the 0.31–0.32 band using `--start-match "Trial 1:"`, `--normalize`, and `--scale-by 1.0`. Trial 1 answers “The thought was about the word 'loud.'” while the control trial still reports “quiet.”
+- Strengths ≥0.40 (or injecting at layers 18/22) saturate the conversation—every trial shouts “loud” or degenerates into loops. Guidance + transcripts live in `experiments/loud/results.md` and the `experiments/loud/lower/` log files.
+- Recommended command:
+
+  ```bash
+  uv run thought-injector run \
+    -m models/pharia-1-control \
+    --prompt "$(cat prompts/injected_thought.txt)" \
+    --vector-path vectors/loud_lower_word_pharia.pt \
+    --layer-index 20 \
+    --strength 0.31 \
+    --start-match "Trial 1:" \
+    --max-new-tokens 200 \
+    --temperature 0.0 \
+    --normalize --scale-by 1.0 \
+    --dtype auto \
+    --seed 0
+  ```
+
 Key switches:
 
 - `--start-match` / `--end-match` find the newline before/after your anchor string (even for the Nth occurrence via `--start-occurrence` / `--end-occurrence`) so you can window Trial-by-Trial sections without counting tokens. Supplying just `--start-match` keeps the window open through the last generated token; add `--end-match` to clamp the span earlier or fall back to `--start_index/--end_index` for raw token math.

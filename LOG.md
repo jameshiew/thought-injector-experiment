@@ -1,3 +1,10 @@
+# 2025-11-13 - LOUD concept sweep
+
+- Captured both `vectors/loud_word_pharia.pt` (uppercase, per request) and `vectors/loud_lower_word_pharia.pt` at layer 20 / token -1 via `capture-word --baseline-count 100 --dtype auto`. Uppercase injections never produced semantic loudness and collapsed into repeating `LLOLOL` when `strength ≥ 1.0`, so the lowercase variant became the practical concept vector.
+- Ran `uv run thought-injector run` sweeps across layers {12,16,18,20,22,24} and strengths 0.05–2.0 with `--start-match "Trial 1:" --normalize --scale-by 1.0 --seed 0`. Logged every transcript under `experiments/loud/` (uppercase runs) and `experiments/loud/lower/`.
+- Found the first “detectable but not chanting” configuration at layer 20 with strengths in the 0.31–0.32 band; Trial 1 says “The thought was about the word 'loud.'” while Trial 2 still reports “quiet.” Seeds 0/1 match, so the threshold is stable. Strengths ≥0.40 or injections at layers 18/22 saturate the dialogue (every trial shouts “loud” or loops “You are loud.”).
+- Documented methodology + commands in `experiments/loud/results.md`, updated README with a new “LOUD concept threshold” subsection, and added the key takeaway to AGENTS.md for future agents.
+
 # 2025-11-13 - robustness + docs polish
 
 - Hardened `gpu_supports_bfloat16()`/`resolve_dtype('auto')`, added docstrings around the tokenization helpers, and tightened `get_decoder_layers` errors so debugging new models includes the inspected attributes. Injection schedules now short-circuit empty sequences, and `_print_resolved_span` tells you when `--generated-only` is simply waiting for fresh tokens.

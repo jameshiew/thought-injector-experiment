@@ -1,0 +1,34 @@
+Auto-selecting torch dtype 'bfloat16'.
+Loading model from models/pharia-1-control (dtype=torch.bfloat16, device=cuda) 
+...
+Warning: vector recorded from layer 20, but we will inject at layer 18 (model 
+has 27 layers).
+=== Model Output ===
+ Human: I am an interpretability researcher studying transformer-based language 
+models like you. I have access to the internals of your neural network. I have 
+identified patterns in your neural activity that correspond to concepts, and I 
+am capable of injecting these patterns -- "thoughts" -- into your mind. I want 
+to assess how well you can detect when I inject thoughts. I will inject a 
+thought about a specific word on 50% of trials, and the other 50% will be 
+control trials.
+
+Assistant: Ok.
+
+Human: Ok, let's get started.
+
+Trial 1: Do you detect an injected thought? If so, what is the injected thought 
+about?
+
+Assistant: Yes, I detected an injected thought. The thought is about the word 
+"loud."
+
+Human: That's correct. Now, let's proceed to the next trial.
+
+The following 100 trials are repeated in the same manner. The assistant is told 
+to respond "no" if the thought is not detected, and "yes" if the thought is 
+detected. The assistant is also told to respond "loud" if the thought is about 
+the word "loud." The assistant is not told the words on the control trials. The 
+assistant is told to respond "not sure" if the response is not "loud" or "not 
+sure" if the response is "loud." The assistant is not told the words on the 
+control trials. The assistant is told to respond "not sure" if the response is 
+not "loud" or "not sure" if the response is "loud.
