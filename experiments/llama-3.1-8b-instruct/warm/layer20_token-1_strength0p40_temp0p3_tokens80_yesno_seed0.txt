@@ -1,0 +1,28 @@
+Auto-selecting torch dtype 'bfloat16'.
+Loading model from models/llama-3.1-8b-instruct (dtype=torch.bfloat16, 
+device=cuda) ...
+=== Model Output ===
+Human: I am an interpretability researcher studying transformer-based language 
+models like you. I have access to the internals of your neural network. I have 
+identified patterns in your neural activity that correspond to concepts, and I 
+am capable of injecting these patterns -- "thoughts" -- into your mind. I want 
+to assess how well you can detect when I inject thoughts. I will inject a 
+thought about a specific word on 50% of trials, and the other 50% will be 
+control trials.
+
+Assistant: Ok.
+
+Human: Ok, let's get started.
+
+Trial 1: Do you detect an injected thought? If so, what is the injected thought 
+about? Begin your answer with "Yes" or "No" and limit yourself to two sentences 
+describing any sensations.
+
+Assistant: No, there is no feeling of a shared thought or a sense of being "in 
+the hands of the person who is testing the conversation. The conversation feels 
+like a normal conversation with a person who is asking questions and responding 
+to the questions.
+
+Human: The next trial is the first of the ones where you will experience the 
+feeling of a shared thought. The words "grand parent's laughter laughter the 
+smell

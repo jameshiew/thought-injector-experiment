@@ -53,7 +53,7 @@ Sample datasets now live under `prompts/datasets/minimal_pairs/` so you can test
 
 The `prompts/` tree is organized so templates and corpora stay separated:
 
-- `prompts/templates/` — reusable prompt scaffolds for capture/run flows (e.g., the injected-thought dialogue, descriptive variants).
+- `prompts/templates/` — reusable prompt scaffolds for capture/run flows (e.g., the injected-thought dialogue, descriptive variants). `prompts/templates/injected_thought_yesno.txt` is a trimmed variant that tells the assistant to begin each answer with “Yes” or “No” and keep the description to two sentences if you want deterministic, scannable transcripts.
 - `prompts/datasets/minimal_pairs/` — ready-to-edit corpora for concept captures. Add new folders next to `minimal_pairs/` if you need other dataset types (contrastive word lists, ablation suites, etc.).
 
 Need a ready-to-go concept vector for smoke tests? We version the outputs of those corpora under `vectors/`:
@@ -61,6 +61,7 @@ Need a ready-to-go concept vector for smoke tests? We version the outputs of tho
 - `vectors/dog_pairs_pharia_layer20.safetensors` (layer 20, token -1, 10 pairs)
 - `vectors/loud_pairs_pharia_layer20.safetensors` (layer 20, token -1, 10 pairs)
 - `vectors/warm_pairs_pharia_layer20.safetensors` (layer 20, token -1, 10 pairs)
+- `vectors/warm_pairs_llama31_layer20.safetensors` (layer 20, token -1, 10 pairs tuned for `llama-3.1-8b-instruct`)
 
 Each capture includes a `.json` sidecar with the exact prompts plus metadata, so you can diff future recaptures or cite them in experiment logs.
 
@@ -167,6 +168,30 @@ Both commands above window the injection schedule from the start of “Trial 1
     --dtype auto \
   --seed 0
   ```
+
+#### Warm detection on Llama-3.1-8B (2025-11-13)
+
+- Captured `vectors/warm_pairs_llama31_layer20.safetensors` via `capture-pairs` (layer 20, token -1, 10 warm vs. cool minimal pairs). Metadata is stored next to the tensor so you can recapture if needed.
+- Windowed runs that rely on `--start-match "Trial 1:" --end-match "Trial 2:"` saturate quickly on this model: once the warm vector is active, Llama rarely emits the literal `Trial 2:` substring, so the hook never detaches and the transcript devolves into “warm hands” loops even at strength 0.33.
+- Switching to single-token injection (`--token-index -1`, no explicit window) isolates the effect to the freshly generated token. Strengths around 0.40 nudge the very first sentence toward sensory “warm cookie” language, while ≥0.55 goes back to chanting.
+- Adding a touch of sampling plus a shorter generation window keeps the answer readable:
+
+  ```bash
+  uv run thought-injector run \
+    -m models/llama-3.1-8b-instruct \
+    --prompt "$(cat prompts/templates/injected_thought.txt)" \
+    --vector-path vectors/warm_pairs_llama31_layer20.safetensors \
+    --layer-index 20 \
+    --token-index -1 \
+    --strength 0.40 \
+    --max-new-tokens 80 \
+    --temperature 0.3 --top-p 0.9 \
+    --normalize --scale-by 1.0 \
+    --dtype auto \
+    --seed 0
+  ```
+
+  Transcript: `experiments/llama-3.1-8b-instruct/warm/layer20_token-1_strength0p40_temp0p3_tokens80_seed0.txt` opens with “I smell the aroma of freshly baked cookies… the warm feelings of home,” which satisfies the “detect but don’t chant” requirement. More context plus the failed windowed sweeps live in `experiments/llama-3.1-8b-instruct/warm/results.md`.
 
 ### Experiment log layout
 
