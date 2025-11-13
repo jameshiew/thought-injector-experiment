@@ -44,13 +44,13 @@ class WindowSpec:
 
     def resolve(
         self, tokenizer: PreTrainedTokenizerBase, prompt: str
-    ) -> tuple[int | None, int | None]:
-        """Return (start_idx, end_idx) token indices; end_idx=-1 becomes seq_len-1 downstream."""
+    ) -> tuple[int | None, int | None, str | None, int]:
+        """Return (start_idx, end_idx, dynamic_end_match, occurrence)."""
         start_idx = self._resolve_start(tokenizer, prompt)
-        end_idx = self._resolve_end(tokenizer, prompt)
-        if start_idx is not None and end_idx is None:
+        end_idx, dynamic_end_match, dynamic_end_occurrence = self._resolve_end(tokenizer, prompt)
+        if start_idx is not None and end_idx is None and dynamic_end_match is None:
             end_idx = -1
-        return start_idx, end_idx
+        return start_idx, end_idx, dynamic_end_match, dynamic_end_occurrence
 
     def build_schedule(
         self,
@@ -64,7 +64,9 @@ class WindowSpec:
     ) -> InjectionSchedule:
         """Resolve char-based anchors into token indices and build an InjectionSchedule."""
 
-        window_start, window_end = self.resolve(tokenizer, prompt)
+        window_start, window_end, dynamic_end_match, dynamic_end_occurrence = self.resolve(
+            tokenizer, prompt
+        )
         return InjectionSchedule(
             apply_all=apply_all_tokens,
             single_index=token_index,
@@ -72,6 +74,8 @@ class WindowSpec:
             window_end=window_end,
             generated_only=generated_only,
             prompt_length=prompt_length,
+            generated_end_match=dynamic_end_match,
+            generated_end_occurrence=dynamic_end_occurrence,
         )
 
     def _resolve_start(self, tokenizer: PreTrainedTokenizerBase, prompt: str) -> int | None:
@@ -84,15 +88,24 @@ class WindowSpec:
             self.start_occurrence,
         )
 
-    def _resolve_end(self, tokenizer: PreTrainedTokenizerBase, prompt: str) -> int | None:
+    def _resolve_end(
+        self, tokenizer: PreTrainedTokenizerBase, prompt: str
+    ) -> tuple[int | None, str | None, int]:
         if self.end_match is None:
-            return self.end_index
-        return resolve_end_match_token_index(
-            tokenizer,
-            prompt,
-            self.end_match,
-            self.end_occurrence,
-        )
+            return self.end_index, None, 1
+        try:
+            end_idx = resolve_end_match_token_index(
+                tokenizer,
+                prompt,
+                self.end_match,
+                self.end_occurrence,
+            )
+            return end_idx, None, 1
+        except typer.BadParameter as exc:
+            message = str(exc)
+            if "not found inside prompt text" in message:
+                return None, self.end_match, self.end_occurrence
+            raise
 
 
 def flatten_first_sequence(values: Any) -> list[Any]:

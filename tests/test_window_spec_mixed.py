@@ -23,8 +23,9 @@ def test_end_match_without_start_defaults_window_start_to_zero() -> None:
     spec = WindowSpec(end_match="Trial 2:")
     spec.validate()
 
-    start_idx, end_idx = spec.resolve(tokenizer, PROMPT)
+    start_idx, end_idx, dynamic_match, _ = spec.resolve(tokenizer, PROMPT)
     assert start_idx is None
+    assert dynamic_match is None
 
     schedule = spec.build_schedule(
         tokenizer=tokenizer,

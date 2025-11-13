@@ -57,6 +57,8 @@ class InjectionSchedule(BaseModel):
     window_end: int | None = None
     generated_only: bool = False
     prompt_length: int | None = Field(default=None, ge=0)
+    generated_end_match: str | None = None
+    generated_end_occurrence: int = Field(default=1, ge=1)
 
     @model_validator(mode="after")
     def _generated_only_requires_prompt(self) -> InjectionSchedule:

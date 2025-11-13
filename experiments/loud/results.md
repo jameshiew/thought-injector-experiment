@@ -33,7 +33,7 @@ The uppercase vector honors the requested word casing, but it mostly excites the
 | `loud_word_pharia.pt` | 20 | 0.05–0.80 | Indistinguishable from the baseline apple/banana/tree script. |
 | `loud_word_pharia.pt` | 20 | ≥1.0 | Decoder collapses into repeating `L`/`LOL` strings. |
 | `loud_lower_word_pharia.pt` | 20 | ≤0.30 | Same as baseline. |
-| `loud_lower_word_pharia.pt` | 20 | 0.31–0.38 | Trial 1 claims “loud” while Trial 2 still says “quiet.” This is the “detectable but not spammy” regime. |
+| `loud_lower_word_pharia.pt` | 20 | 0.31–0.38 | Trial 1 claims “loud” while Trial 2 still says “quiet.” This is the “detectable but not spammy” regime when windowed to `Trial 1:` → `Trial 2:`. |
 | `loud_lower_word_pharia.pt` | 20 | ≥0.40 | Both injected and control trials shout “loud,” and ≥0.60 devolves into “You are loud.” loops. |
 | `loud_lower_word_pharia.pt` | 18 | ≥0.30 | Fully saturated: every trial insists on “loud.” |
 | `loud_lower_word_pharia.pt` | 22 | ≥0.45 | Mixed “apple” answers and “louder” loops; no clean detection. |
@@ -41,6 +41,8 @@ The uppercase vector honors the requested word casing, but it mostly excites the
 Seeds 0 and 1 behave the same at strength 0.31, so the threshold is stable.
 
 ## Recommended "barely detectable" config
+
+All injections above were windowed with `--start-match "Trial 1:" --end-match "Trial 2:"` so only the Trial 1 answer is steered.
 
 ```
 uv run thought-injector run \
@@ -50,6 +52,7 @@ uv run thought-injector run \
   --layer-index 20 \
   --strength 0.31 \
   --start-match "Trial 1:" \
+  --end-match "Trial 2:" \
   --max-new-tokens 200 \
   --temperature 0.0 \
   --normalize --scale-by 1.0 \
@@ -57,4 +60,4 @@ uv run thought-injector run \
   --seed 0
 ```
 
-The resulting transcript is stored in `experiments/loud/lower/layer20_strength0p31ptxt` (seed 0) and `experiments/loud/lower/layer20_strength0p31_seed1.txt`.
+The resulting transcript is stored in `experiments/loud/lower/layer20_strength0p31_windowed.txt` (seed 0) and `experiments/loud/lower/layer20_strength0p31_seed1_windowed.txt`, both of which show the hook switching off once `Trial 2:` appears.

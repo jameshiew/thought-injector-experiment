@@ -32,10 +32,10 @@ if TYPE_CHECKING:
     class GenerationConfig:  # pragma: no cover - type stub
         def __init__(self, *args: Any, **kwargs: Any) -> None: ...
 
-    from transformers import PreTrainedModel
+    from transformers import PreTrainedModel, StoppingCriteria, StoppingCriteriaList
 
 else:
-    from transformers import GenerationConfig
+    from transformers import GenerationConfig, StoppingCriteria, StoppingCriteriaList
 
 
 ManualSeedFn = Callable[[int], torch.Generator]
@@ -57,6 +57,37 @@ def _decode_output(
     """Decode a tensor of token ids back into readable text."""
     decode_fn = cast(DecodeFn, tokenizer.decode)
     return decode_fn(token_ids, skip_special_tokens=not include_prompt)
+
+
+class SubstringStoppingCriteria(StoppingCriteria):
+    """Halts generation once the given substring appears in the decoded continuation."""
+
+    def __init__(
+        self,
+        tokenizer: PreTrainedTokenizerBase,
+        substring: str,
+        occurrence: int,
+        prompt_length: int,
+    ) -> None:
+        super().__init__()
+        self._tokenizer = tokenizer
+        self._substring = substring
+        self._occurrence = occurrence
+        self._prompt_length = prompt_length
+        self.triggered = False
+
+    def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor) -> bool:  # type: ignore[override]
+        if input_ids.shape[0] != 1:
+            return False
+        seq = input_ids[0]
+        if seq.shape[0] <= self._prompt_length:
+            return False
+        decode_fn = cast(DecodeFn, self._tokenizer.decode)
+        continuation = decode_fn(seq[self._prompt_length :], skip_special_tokens=False)
+        if continuation.count(self._substring) >= self._occurrence:
+            self.triggered = True
+            return True
+        return False
 
 
 def _build_generation_config(
@@ -213,32 +244,33 @@ def _should_disable_cache(
     return disable_cache
 
 
-def _generate_text_with_schedule(
+def _run_model_generate(
     *,
     model: PreTrainedModel | Any,
-    tokenizer: PreTrainedTokenizerBase,
     inputs: dict[str, torch.Tensor],
     generation_config: GenerationConfig,
     schedule: InjectionSchedule,
     vector: torch.Tensor | None,
     layer_index: int | None,
     strength: float | None,
-    include_prompt: bool,
-) -> str:
-    """Run generation while optionally installing an injection hook for the window."""
+    stopping_criteria: StoppingCriteriaList | None = None,
+) -> torch.Tensor:
+    """Shared helper that runs `model.generate` with optional injection hooks."""
     use_injection = vector is not None and layer_index is not None and strength is not None
-    # Keep cache disabled whenever an injection hook is active (even if strength == 0.0)
-    # so span debugging runs share the same execution path as non-zero injections.
     disable_cache = _should_disable_cache(model, schedule, use_injection)
     sampling_model = cast(Any, model)
 
     if use_injection:
-        assert layer_index is not None  # for type checkers
+        assert layer_index is not None
         assert vector is not None
         assert strength is not None
         ctx = injection_context(model, layer_index, vector, strength, schedule)
     else:
         ctx = nullcontext()
+
+    generate_kwargs: dict[str, Any] = {}
+    if stopping_criteria is not None:
+        generate_kwargs["stopping_criteria"] = stopping_criteria
 
     with torch.no_grad(), ctx:
         output_ids = cast(
@@ -247,8 +279,95 @@ def _generate_text_with_schedule(
                 **inputs,
                 generation_config=generation_config,
                 use_cache=not disable_cache,
+                **generate_kwargs,
             ),
         )
+    return output_ids
+
+
+def _generate_text_with_schedule(
+    *,
+    model: PreTrainedModel | Any,
+    tokenizer: PreTrainedTokenizerBase,
+    inputs: dict[str, torch.Tensor],
+    generation_config: GenerationConfig,
+    max_new_tokens: int,
+    temperature: float,
+    top_p: float,
+    schedule: InjectionSchedule,
+    vector: torch.Tensor | None,
+    layer_index: int | None,
+    strength: float | None,
+    include_prompt: bool,
+) -> str:
+    """Run generation while optionally installing an injection hook for the window."""
+    prompt_length = inputs["input_ids"].shape[1]
+
+    if schedule.generated_end_match:
+        stop = SubstringStoppingCriteria(
+            tokenizer=tokenizer,
+            substring=schedule.generated_end_match,
+            occurrence=schedule.generated_end_occurrence,
+            prompt_length=prompt_length,
+        )
+        stop_list = StoppingCriteriaList([stop])
+        output_phase1 = _run_model_generate(
+            model=model,
+            inputs=inputs,
+            generation_config=generation_config,
+            schedule=schedule,
+            vector=vector,
+            layer_index=layer_index,
+            strength=strength,
+            stopping_criteria=stop_list,
+        )
+        tokens_phase1 = output_phase1.shape[1] - prompt_length
+        if not stop.triggered:
+            console.print(
+                f"[yellow]Warning:[/yellow] --end-match '{schedule.generated_end_match}' "
+                "never appeared in the generated text; injection stayed active for the "
+                "full run."
+            )
+            return _decode_output(tokenizer, output_phase1[0], include_prompt=include_prompt)
+
+        max_new = getattr(generation_config, "max_new_tokens", None) or 0
+        remaining = max(max_new - tokens_phase1, 0)
+        if remaining <= 0:
+            return _decode_output(tokenizer, output_phase1[0], include_prompt=include_prompt)
+
+        prompt_text = _decode_output(tokenizer, output_phase1[0], include_prompt=True)
+        device = inputs["input_ids"].device
+        inputs_phase2 = tokenize(tokenizer, prompt_text, device)
+        remaining_config = _build_generation_config(
+            tokenizer,
+            max_new_tokens=remaining,
+            temperature=temperature,
+            top_p=top_p,
+        )
+
+        output_phase2 = _run_model_generate(
+            model=model,
+            inputs=inputs_phase2,
+            generation_config=remaining_config,
+            schedule=schedule,
+            vector=None,
+            layer_index=None,
+            strength=None,
+        )
+        phase2_prompt_len = inputs_phase2["input_ids"].shape[1]
+        new_tokens = output_phase2[:, phase2_prompt_len:]
+        combined = torch.cat([output_phase1, new_tokens], dim=1)
+        return _decode_output(tokenizer, combined[0], include_prompt=include_prompt)
+
+    output_ids = _run_model_generate(
+        model=model,
+        inputs=inputs,
+        generation_config=generation_config,
+        schedule=schedule,
+        vector=vector,
+        layer_index=layer_index,
+        strength=strength,
+    )
     return _decode_output(tokenizer, output_ids[0], include_prompt=include_prompt)
 
 
@@ -515,6 +634,12 @@ def run(
 
     if verbose:
         _print_resolved_span(schedule, prompt_length)
+    if schedule.generated_end_match:
+        console.print(
+            "[blue]Window:[/blue] injection will stop once "
+            f"'{schedule.generated_end_match}' (occurrence {schedule.generated_end_occurrence}) "
+            "appears in the generated text."
+        )
 
     generation_config = _build_generation_config(
         tokenizer,
@@ -550,6 +675,9 @@ def run(
         tokenizer=tokenizer,
         inputs=inputs,
         generation_config=generation_config,
+        max_new_tokens=max_new_tokens,
+        temperature=temperature,
+        top_p=top_p,
         schedule=schedule,
         vector=vector_tensor,
         layer_index=layer_index,
@@ -694,6 +822,9 @@ def sweep(
             tokenizer=tokenizer,
             inputs=cloned_inputs,
             generation_config=generation_config,
+            max_new_tokens=max_new_tokens,
+            temperature=temperature,
+            top_p=top_p,
             schedule=schedule,
             vector=vector_arg,
             layer_index=layer_idx,

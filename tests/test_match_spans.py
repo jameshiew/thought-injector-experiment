@@ -187,31 +187,35 @@ def test_window_spec_resolves_matches_to_indices() -> None:
     spec = WindowSpec(start_match="Trial 1:", end_match="Trial 2:")
     spec.validate()
 
-    start_idx, end_idx = spec.resolve(tokenizer, PROMPT)
+    start_idx, end_idx, dynamic_match, dynamic_occurrence = spec.resolve(tokenizer, PROMPT)
     expected_start = PROMPT.rfind("\n", 0, PROMPT.find("Trial 1:"))
     trial2_end = PROMPT.find("Trial 2:") + len("Trial 2:")
     expected_end = PROMPT.find("\n", trial2_end)
 
     assert start_idx == expected_start
     assert end_idx == expected_end
+    assert dynamic_match is None
+    assert dynamic_occurrence == 1
 
 
 def test_window_spec_defaults_end_to_negative_one_when_only_start_specified() -> None:
     tokenizer = CharTokenizer()
     spec = WindowSpec(start_index=5)
     spec.validate()
-    start_idx, end_idx = spec.resolve(tokenizer, PROMPT)
+    start_idx, end_idx, dynamic_match, _ = spec.resolve(tokenizer, PROMPT)
     assert start_idx == 5
     assert end_idx == -1
+    assert dynamic_match is None
 
 
 def test_window_spec_leaves_indices_none_when_unset() -> None:
     tokenizer = CharTokenizer()
     spec = WindowSpec()
     spec.validate()
-    start_idx, end_idx = spec.resolve(tokenizer, PROMPT)
+    start_idx, end_idx, dynamic_match, _ = spec.resolve(tokenizer, PROMPT)
     assert start_idx is None
     assert end_idx is None
+    assert dynamic_match is None
 
 
 def test_window_spec_build_schedule_resolves_window_and_prompt_length() -> None:
@@ -236,6 +240,34 @@ def test_window_spec_build_schedule_resolves_window_and_prompt_length() -> None:
     assert schedule.window_start == expected_start
     assert schedule.window_end == expected_end
     assert schedule.prompt_length == prompt_length
+    assert schedule.generated_end_match is None
+
+
+def test_window_spec_supports_dynamic_end_when_anchor_missing() -> None:
+    tokenizer = CharTokenizer()
+    spec = WindowSpec(start_match="Trial 1:", end_match="Trial 3:")
+    spec.validate()
+
+    prompt_length = len(PROMPT)
+    start_idx, end_idx, dynamic_match, dynamic_occurrence = spec.resolve(tokenizer, PROMPT)
+
+    expected_start = PROMPT.rfind("\n", 0, PROMPT.find("Trial 1:"))
+    assert start_idx == expected_start
+    assert end_idx is None
+    assert dynamic_match == "Trial 3:"
+    assert dynamic_occurrence == 1
+
+    schedule = spec.build_schedule(
+        tokenizer=tokenizer,
+        prompt=PROMPT,
+        token_index=None,
+        apply_all_tokens=False,
+        generated_only=False,
+        prompt_length=prompt_length,
+    )
+
+    assert schedule.generated_end_match == "Trial 3:"
+    assert schedule.window_end is None
 
 
 def test_window_spec_rejects_start_index_and_match_combo() -> None:

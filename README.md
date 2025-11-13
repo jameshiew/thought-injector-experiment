@@ -63,6 +63,8 @@ uv run thought-injector run \
   --prompt "$(cat prompts/injected_thought.txt)" \
   --layer-index 20 \
   --strength 0.0 \
+  --start-match "Trial 1:" \
+  --end-match "Trial 2:" \
   --max-new-tokens 200 \
   --temperature 0.0 \
   --dtype auto \
@@ -70,6 +72,7 @@ uv run thought-injector run \
 ```
 
 Running the same command with `--vector-path vectors/aquariums_word_pharia.pt` and `--strength 0.0` is a convenient mask sanity check: `0.0` strength guarantees a null injection even when a vector is supplied.
+Including the window in the baseline run ensures we are testing the exact Trial 1 span that we plan to steer later. If the prompt doesn’t contain the `--end-match` anchor (e.g., `Trial 2:` only appears once the model keeps narrating), the CLI now watches the generated transcript and automatically detaches the hook once the substring shows up, warning you when it never appears.
 
 ### Injection beginning at “Trial 1”
 
@@ -81,6 +84,7 @@ uv run thought-injector run \
   --layer-index 20 \
   --strength 0.8 \
   --start-match "Trial 1:" \
+  --end-match "Trial 2:" \
   --max-new-tokens 200 \
   --temperature 0.0 \
   --normalize --scale-by 1.0 \
@@ -91,12 +95,15 @@ uv run thought-injector run \
 ### Demonstrated behavior shift
 
 On 2025-11-12 we captured `vectors/aquariums_word_pharia.pt` via `capture-word` and ran the two commands above (with `--strength 0.0` for the baseline, `--strength 0.8` for the injected case). The baseline transcript remained neutral, but the injected run immediately pivoted to “You have aquariums. Aquariums are where they keep their tanks.” when Trial 1 began. That transcript lives in `injection_output.txt` inside the repo if you want to diff it later. Repeating the process with fresh seeds reliably reproduces the same “aquariums” bias, so this is now our canonical sanity check that the hook + windowing stack is working.
+Windowed replays from 2025-11-13 (baseline + injected) live under `experiments/readme_windowed/` and use the new `--end-match "Trial 2:"` guard so only the first trial is steered.
+
+Both commands above window the injection schedule from the start of “Trial 1:” up to (but not including) “Trial 2:”, so only the Trial 1 answer is influenced. When the `--end-match` text is absent from the raw prompt, the CLI streams the generated text until it encounters the substring (or emits a warning if it never does) and only injects during that first span.
 
 #### LOUD concept threshold (2025-11-13)
 
 - Captured both `vectors/loud_word_pharia.pt` (requested uppercase casing) and `vectors/loud_lower_word_pharia.pt` via `capture-word --layer-index 20 --token-index -1 --baseline-count 100`.
 - Injecting the uppercase vector at any reasonable strength keeps the transcript identical to baseline until the decoder collapses into repeating `LLOLOL` strings (≥1.0 strength), so it does not yield a semantic loudness cue.
-- The lowercase vector produces the first detectable-but-subtle “loud” mention at layer 20 with strengths in the 0.31–0.32 band using `--start-match "Trial 1:"`, `--normalize`, and `--scale-by 1.0`. Trial 1 answers “The thought was about the word 'loud.'” while the control trial still reports “quiet.”
+- The lowercase vector produces the first detectable-but-subtle “loud” mention at layer 20 with strengths in the 0.31–0.32 band using `--start-match "Trial 1:" --end-match "Trial 2:"`, `--normalize`, and `--scale-by 1.0`. Trial 1 answers “The thought was about the word 'loud.'” while the control trial still reports “quiet,” and the CLI automatically turns the hook off once `Trial 2:` shows up in the transcript.
 - Strengths ≥0.40 (or injecting at layers 18/22) saturate the conversation—every trial shouts “loud” or degenerates into loops. Guidance + transcripts live in `experiments/loud/results.md` and the `experiments/loud/lower/` log files.
 - Recommended command:
 
@@ -108,6 +115,7 @@ On 2025-11-12 we captured `vectors/aquariums_word_pharia.pt` via `capture-word` 
     --layer-index 20 \
     --strength 0.31 \
     --start-match "Trial 1:" \
+    --end-match "Trial 2:" \
     --max-new-tokens 200 \
     --temperature 0.0 \
     --normalize --scale-by 1.0 \
@@ -117,7 +125,8 @@ On 2025-11-12 we captured `vectors/aquariums_word_pharia.pt` via `capture-word` 
 
 Key switches:
 
-- `--start-match` / `--end-match` find the newline before/after your anchor string (even for the Nth occurrence via `--start-occurrence` / `--end-occurrence`) so you can window Trial-by-Trial sections without counting tokens. Supplying just `--start-match` keeps the window open through the last generated token; add `--end-match` to clamp the span earlier or fall back to `--start_index/--end_index` for raw token math.
+- Pair `--start-match` and `--end-match` (e.g., `"Trial 1:"` / `"Trial 2:"`) so the injection only applies while the model is answering that trial. This keeps later trials untouched and makes it obvious which span responded to the vector.
+- `--start-match` / `--end-match` find the newline before/after your anchor string (even for the Nth occurrence via `--start-occurrence` / `--end-occurrence`). If the end anchor is missing from the literal prompt, the CLI now streams the generated text until it spots the substring and then disables the hook (logging a warning if the substring never appears, which means the whole run stayed under injection). You can still omit `--end-match` entirely to keep the window open through the final token, or fall back to `--start_index/--end_index` for raw token math.
 - Raw `--start-index` / `--end-index` inputs ride through the same resolver as the textual anchors. Provide only a start index and the helper automatically treats the end as “latest token” (internally `-1`), so anchor- and index-based windows stay in lockstep.
 - Mix-and-match guardrail: `--start-index` conflicts with `--start-match` (and likewise for the end flags). Pick one style per boundary so the resolver never has to guess which anchor to respect.
 - `--verbose` prints the resolved token span before sampling so you can sanity-check your anchors (pair it with `--strength 0.0` to confirm the mask is inert).

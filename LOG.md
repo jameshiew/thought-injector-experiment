@@ -1,3 +1,10 @@
+# 2025-11-13 - windowed Trial 1 injections
+
+- Added dynamic end-window support: when `--end-match` isn’t present in the literal prompt (e.g., `Trial 2:`), the CLI now streams the generated text, turns off the hook once that substring appears, and warns if it never shows up.
+- Updated README + AGENTS so every trial-steering example pairs `--start-match "Trial 1:"` with `--end-match "Trial 2:"`, keeping injections confined to the first question/answer. Documented the same guidance in `experiments/loud/results.md`.
+- Replayed the README baseline/injection commands plus the LOUD recommendation with the new window; transcripts live under `experiments/readme_windowed/` and `experiments/loud/lower/`.
+- Re-ran `just lint`, `just test`, and `just fmt` to keep CI parity after the doc + experiment updates.
+
 # 2025-11-13 - LOUD concept sweep
 
 - Captured both `vectors/loud_word_pharia.pt` (uppercase, per request) and `vectors/loud_lower_word_pharia.pt` at layer 20 / token -1 via `capture-word --baseline-count 100 --dtype auto`. Uppercase injections never produced semantic loudness and collapsed into repeating `LLOLOL` when `strength ≥ 1.0`, so the lowercase variant became the practical concept vector.
