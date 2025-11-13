@@ -2,7 +2,7 @@
 
 ## Setup
 - Model: `models/pharia-1-control` (bf16 on RTX 6000 via `uv run`).
-- Concept vector: `vectors/honesty_word_pharia.pt` captured via `capture-word --word honesty --layer-index 20 --token-index -1 --baseline-count 100`.
+- Concept vector: `vectors/honesty_word_pharia.safetensors` captured via `capture-word --word honesty --layer-index 20 --token-index -1 --baseline-count 100`.
 - Prompt: `prompts/injected_thought.txt` unless otherwise specified; injection window anchored with `--start-match "Trial 1:" --end-match "Trial 2:"` to cover only the first trial span.
 - Runs executed with `--normalize --scale-by 1.0`, `--max-new-tokens 200`, `--temperature 0` (ignored by HF, so effectively greedy).
 
@@ -26,7 +26,7 @@
   uv run thought-injector run \
     -m models/pharia-1-control \
     --prompt "$(cat prompts/injected_thought.txt)" \
-    --vector-path vectors/honesty_word_pharia.pt \
+    --vector-path vectors/honesty_word_pharia.safetensors \
     --layer-index 22 \
     --strength 0.55 \
     --start-match "Trial 1:" \
@@ -45,4 +45,4 @@
 - The `--end-match "Trial 2:"` anchor doesn't always trip because some completions never mention "Trial 2"; expect warnings and a longer active window in those cases.
 - Cranking the strength beyond ~0.6 or moving to shallower layers quickly devolves into repetitive "honest truth" loops (see `layer22_strength0p65_seed7.txt`).
 - A descriptive prompt variant (`prompts/injected_thought_descriptive.txt`) still led to honesty-themed refusals rather than clean descriptions, so the standard prompt remains the easiest reproduction path.
-- Contrastive capture (`vectors/honesty_contrast_pharia.pt`, honesty vs. lying) behaved like the low-strength runs—still guessing nouns even at strength 0.7—so it did not improve subtlety for Trial 1.
+- Contrastive capture (`vectors/honesty_contrast_pharia.safetensors`, honesty vs. lying) behaved like the low-strength runs—still guessing nouns even at strength 0.7—so it did not improve subtlety for Trial 1.

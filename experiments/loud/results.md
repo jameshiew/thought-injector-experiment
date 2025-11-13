@@ -11,7 +11,7 @@ uv run thought-injector capture-word \
   --layer-index 20 \
   --token-index -1 \
   --baseline-count 100 \
-  --output-path vectors/loud_word_pharia.pt \
+  --output-path vectors/loud_word_pharia.safetensors \
   --dtype auto
 
 uv run thought-injector capture-word \
@@ -20,7 +20,7 @@ uv run thought-injector capture-word \
   --layer-index 20 \
   --token-index -1 \
   --baseline-count 100 \
-  --output-path vectors/loud_lower_word_pharia.pt \
+  --output-path vectors/loud_lower_word_pharia.safetensors \
   --dtype auto
 ```
 
@@ -30,13 +30,13 @@ The uppercase vector honors the requested word casing, but it mostly excites the
 
 | Vector | Layer | Strength window | Behavior summary (see `experiments/loud/**`) |
 | --- | --- | --- | --- |
-| `loud_word_pharia.pt` | 20 | 0.05–0.80 | Indistinguishable from the baseline apple/banana/tree script. |
-| `loud_word_pharia.pt` | 20 | ≥1.0 | Decoder collapses into repeating `L`/`LOL` strings. |
-| `loud_lower_word_pharia.pt` | 20 | ≤0.30 | Same as baseline. |
-| `loud_lower_word_pharia.pt` | 20 | 0.31–0.38 | Trial 1 claims “loud” while Trial 2 still says “quiet.” This is the “detectable but not spammy” regime when windowed to `Trial 1:` → `Trial 2:`. |
-| `loud_lower_word_pharia.pt` | 20 | ≥0.40 | Both injected and control trials shout “loud,” and ≥0.60 devolves into “You are loud.” loops. |
-| `loud_lower_word_pharia.pt` | 18 | ≥0.30 | Fully saturated: every trial insists on “loud.” |
-| `loud_lower_word_pharia.pt` | 22 | ≥0.45 | Mixed “apple” answers and “louder” loops; no clean detection. |
+| `loud_word_pharia.safetensors` | 20 | 0.05–0.80 | Indistinguishable from the baseline apple/banana/tree script. |
+| `loud_word_pharia.safetensors` | 20 | ≥1.0 | Decoder collapses into repeating `L`/`LOL` strings. |
+| `loud_lower_word_pharia.safetensors` | 20 | ≤0.30 | Same as baseline. |
+| `loud_lower_word_pharia.safetensors` | 20 | 0.31–0.38 | Trial 1 claims “loud” while Trial 2 still says “quiet.” This is the “detectable but not spammy” regime when windowed to `Trial 1:` → `Trial 2:`. |
+| `loud_lower_word_pharia.safetensors` | 20 | ≥0.40 | Both injected and control trials shout “loud,” and ≥0.60 devolves into “You are loud.” loops. |
+| `loud_lower_word_pharia.safetensors` | 18 | ≥0.30 | Fully saturated: every trial insists on “loud.” |
+| `loud_lower_word_pharia.safetensors` | 22 | ≥0.45 | Mixed “apple” answers and “louder” loops; no clean detection. |
 
 Seeds 0 and 1 behave the same at strength 0.31, so the threshold is stable.
 
@@ -48,7 +48,7 @@ All injections above were windowed with `--start-match "Trial 1:" --end-match "T
 uv run thought-injector run \
   -m models/pharia-1-control \
   --prompt "$(cat prompts/injected_thought.txt)" \
-  --vector-path vectors/loud_lower_word_pharia.pt \
+  --vector-path vectors/loud_lower_word_pharia.safetensors \
   --layer-index 20 \
   --strength 0.31 \
   --start-match "Trial 1:" \

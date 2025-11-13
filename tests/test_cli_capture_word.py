@@ -32,7 +32,7 @@ def test_capture_word_raises_when_baseline_file_only_contains_target(
             token_index=-1,
             baseline_path=baseline_path,
             baseline_count=1,
-            output_path=tmp_path / "out.pt",
+            output_path=tmp_path / "out.safetensors",
             dtype="auto",
             device="auto",
         )

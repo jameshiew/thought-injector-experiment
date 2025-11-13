@@ -16,7 +16,7 @@ from thought_injector.vectors import (
 
 
 def test_save_and_load_vector_round_trip(tmp_path: Path) -> None:
-    path = tmp_path / "concept.pt"
+    path = tmp_path / "concept.safetensors"
     vector = torch.ones(8)
     metadata = {
         "model_path": "./model",
@@ -31,10 +31,11 @@ def test_save_and_load_vector_round_trip(tmp_path: Path) -> None:
     assert torch.equal(record.vector, vector)
     assert record.metadata.layer_index == 1
     assert record.metadata.prompts == {"positive": "Tell me X"}
+    assert path.with_suffix(".json").exists()
 
 
 def test_save_and_load_vector_with_multi_dimensional_tensor(tmp_path: Path) -> None:
-    path = tmp_path / "concept_2d.pt"
+    path = tmp_path / "concept_2d.safetensors"
     vector = torch.arange(0, 6, dtype=torch.float32).reshape(2, 3)
     save_vector(path, vector, {"layer_index": 0})
 
@@ -44,7 +45,7 @@ def test_save_and_load_vector_with_multi_dimensional_tensor(tmp_path: Path) -> N
 
 
 def test_save_vector_rejects_invalid_metadata(tmp_path: Path) -> None:
-    path = tmp_path / "invalid.pt"
+    path = tmp_path / "invalid.safetensors"
     vector = torch.zeros(1, 3)
 
     with pytest.raises(typer.BadParameter):
@@ -60,7 +61,7 @@ def test_ensure_vector_matches_model_rejects_non_1d_vectors() -> None:
 
 
 def test_load_prepared_vector_normalizes_and_scales(tmp_path: Path) -> None:
-    path = tmp_path / "prepared.pt"
+    path = tmp_path / "prepared.safetensors"
     vector = torch.tensor([1.0, 3.0, 5.0], dtype=torch.float32)
     save_vector(path, vector, {"layer_index": 0})
 
@@ -74,7 +75,7 @@ def test_load_prepared_vector_normalizes_and_scales(tmp_path: Path) -> None:
 
 
 def test_load_prepared_vector_validates_hidden_size(tmp_path: Path) -> None:
-    path = tmp_path / "mismatch.pt"
+    path = tmp_path / "mismatch.safetensors"
     vector = torch.tensor([1.0, 2.0], dtype=torch.float32)
     save_vector(path, vector, {"layer_index": 0})
 

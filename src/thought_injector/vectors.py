@@ -1,20 +1,23 @@
 from __future__ import annotations
 
+import json
+import os
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol, cast
 
 import torch
 import typer
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from safetensors import torch as safetensors_torch
 from transformers import PreTrainedModel
 
 from thought_injector.app import console
 
 
 class VectorMetadata(BaseModel):
-    """Structured metadata saved via Pydantic when vectors are serialized with torch.save."""
+    """Structured metadata persisted alongside safetensors vectors."""
 
     model_config = ConfigDict(extra="allow")
 
@@ -25,15 +28,6 @@ class VectorMetadata(BaseModel):
     baseline_count: int | None = Field(default=None, ge=0)
     baseline_source: str | None = None
     prompts: dict[str, Any] | None = None
-
-
-class VectorPayload(BaseModel):
-    """Wrapper combining tensor data and VectorMetadata for torch.save persistence."""
-
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
-    vector: torch.Tensor
-    metadata: VectorMetadata = Field(default_factory=VectorMetadata)
 
 
 @dataclass
@@ -53,6 +47,7 @@ class PreparedVector:
 def save_vector(
     path: Path, vector: torch.Tensor, metadata: Mapping[str, Any] | VectorMetadata
 ) -> None:
+    _require_safetensors_extension(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     try:
         metadata_model = (
@@ -63,26 +58,45 @@ def save_vector(
     except ValidationError as err:  # pragma: no cover - defensive guard.
         raise typer.BadParameter(f"Invalid vector metadata: {err}") from err
 
-    payload = VectorPayload(vector=vector, metadata=metadata_model)
-    torch.save(
-        {
-            "vector": payload.vector,
-            "metadata": payload.metadata.model_dump(mode="python"),
-        },
-        path,
-    )
-    console.print(f"Saved vector -> {path}")
+    temp_tensor_path = path.with_suffix(path.suffix + ".tmp")
+    metadata_path = path.with_suffix(".json")
+    temp_metadata_path = metadata_path.with_suffix(metadata_path.suffix + ".tmp")
+    metadata_path.parent.mkdir(parents=True, exist_ok=True)
+
+    tensor_to_save = vector.detach().cpu()
+    try:
+        save_file({"vector": tensor_to_save}, str(temp_tensor_path))
+        json_payload = metadata_model.model_dump(mode="json")
+        temp_metadata_path.write_text(json.dumps(json_payload, indent=2) + "\n", encoding="utf-8")
+        temp_metadata_path.replace(metadata_path)
+        temp_tensor_path.replace(path)
+    finally:
+        temp_tensor_path.unlink(missing_ok=True)
+        temp_metadata_path.unlink(missing_ok=True)
+
+    console.print(f"Saved vector -> {path} (+ metadata {metadata_path.name})")
 
 
 def load_vector(path: Path) -> VectorRecord:
+    _require_safetensors_extension(path)
     if not path.exists():
         raise typer.BadParameter(f"Vector file {path} not found.")
-    payload = torch.load(path, map_location="cpu")
+    tensors = load_file(str(path), device="cpu")
+    if "vector" not in tensors:
+        raise typer.BadParameter(f"Vector file {path} is missing the 'vector' tensor.")
+
+    metadata_path = path.with_suffix(".json")
+    if not metadata_path.exists():
+        raise typer.BadParameter(f"Metadata file {metadata_path} not found for vector {path}.")
+
+    with metadata_path.open("r", encoding="utf-8") as handle:
+        metadata_payload = json.load(handle)
+
     try:
-        validated = VectorPayload.model_validate(payload)
+        metadata_model = VectorMetadata.model_validate(metadata_payload)
     except ValidationError as err:
-        raise typer.BadParameter(f"Vector file {path} is invalid: {err}") from err
-    return VectorRecord(vector=validated.vector, metadata=validated.metadata)
+        raise typer.BadParameter(f"Vector metadata {metadata_path} is invalid: {err}") from err
+    return VectorRecord(vector=tensors["vector"], metadata=metadata_model)
 
 
 def load_prepared_vector(
@@ -132,3 +146,27 @@ def ensure_vector_matches_model(vector: torch.Tensor, model: PreTrainedModel) ->
         raise typer.BadParameter(
             f"Vector hidden size {vector.shape[-1]} != model hidden size {hidden_size}."
         )
+
+
+def _require_safetensors_extension(path: Path) -> None:
+    if path.suffix.lower() != ".safetensors":
+        raise typer.BadParameter(f"Vectors must use the .safetensors extension; got {path.name}.")
+
+
+class _LoadFileFn(Protocol):
+    def __call__(
+        self, filename: str | os.PathLike[str], device: str | int = "cpu"
+    ) -> dict[str, torch.Tensor]: ...
+
+
+class _SaveFileFn(Protocol):
+    def __call__(
+        self,
+        tensors: Mapping[str, torch.Tensor],
+        filename: str | os.PathLike[str],
+        metadata: Mapping[str, str] | None = None,
+    ) -> None: ...
+
+
+load_file: _LoadFileFn = cast(_LoadFileFn, safetensors_torch.load_file)
+save_file: _SaveFileFn = cast(_SaveFileFn, safetensors_torch.save_file)

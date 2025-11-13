@@ -397,7 +397,7 @@ def capture(
     output_path: Annotated[
         Path,
         typer.Option(help="Where to store the concept vector."),
-    ] = Path("vectors/concept.pt"),
+    ] = Path("vectors/concept.safetensors"),
     dtype: Annotated[
         str,
         typer.Option(
@@ -464,7 +464,7 @@ def capture_word(
     output_path: Annotated[
         Path,
         typer.Option(help="Where to store the concept vector."),
-    ] = Path("vectors/concept.pt"),
+    ] = Path("vectors/concept.safetensors"),
     dtype: Annotated[
         str,
         typer.Option(help="Torch dtype for model weights; 'auto' picks bfloat16 when supported."),
