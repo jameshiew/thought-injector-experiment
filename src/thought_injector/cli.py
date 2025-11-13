@@ -124,11 +124,13 @@ APPLY_ALL_TOKENS_OPTION = typer.Option(
     ...,
     "--apply-all-tokens",
     help="If set, injects into every token in the sequence.",
+    show_default=True,
 )
 GENERATED_ONLY_OPTION = typer.Option(
     ...,
     "--generated-only",
     help="Restrict injection to newly generated tokens.",
+    show_default=True,
 )
 NORMALIZE_OPTION = typer.Option(
     True,
@@ -168,9 +170,18 @@ def _build_window_spec(
 def _print_resolved_span(schedule: InjectionSchedule, prompt_length: int) -> None:
     span = schedule.resolved_span(prompt_length)
     if span is None:
-        console.print(
-            f"[yellow]Resolved token span is empty for prompt length {prompt_length}. Check your flags."
-        )
+        if schedule.generated_only:
+            gen_origin = (
+                schedule.prompt_length if schedule.prompt_length is not None else prompt_length
+            )
+            console.print(
+                "[blue]Generated-only schedule:[/blue] prompt tokens remain untouched; "
+                f"injection begins at index {gen_origin} once new tokens are produced."
+            )
+        else:
+            console.print(
+                f"[yellow]Resolved token span is empty for prompt length {prompt_length}. Check your flags."
+            )
         return
     span_start, span_end = span
     notes: list[str] = []
@@ -186,6 +197,8 @@ def _print_resolved_span(schedule: InjectionSchedule, prompt_length: int) -> Non
 def _should_disable_cache(
     model: PreTrainedModel | Any, schedule: InjectionSchedule, has_injection: bool
 ) -> bool:
+    # Only disable KV cache when an injection is active and the schedule requires it;
+    # baseline generations keep cache-enabled windows for speed.
     disable_cache = has_injection and schedule.requires_full_sequence()
     if requires_cache_disabled(model):
         return True

@@ -23,6 +23,8 @@ The CLI entry point becomes available as `uv run thought-injector`.
 
 `capture_word` prompts the model with `Tell me about {word}.`, subtracts the mean response over ~100 diverse baseline nouns/verbs/abstracts, and stores the resulting vector with full metadata.
 
+Captured vectors are persisted as 1-D tensors whose length equals the model's `hidden_size`; the CLI validates this invariant before every injection so downstream tools can assume the exact shape.
+
 ```bash
 uv run thought-injector capture-word \
   -m models/pharia-1-control \
@@ -137,7 +139,7 @@ uv run thought-injector inspect-vector vectors/aquariums_word_pharia.pt
 - Typer 0.20.0 still expects Click 8.1.x. Click 8.3.0 changed how boolean flags are detected and causes `Secondary flag is not valid for non-boolean flag.` crashes whenever you reuse `--normalize/--no-normalize`. If you accidentally upgrade Click, run `uv sync` to restore the `click>=8.1.8,<8.2` guard.
 - Transformers 4.57.1 currently requires `huggingface-hub<1.0`, so we pin the client to the newest sub-1.0 release (`huggingface-hub>=0.36.0,<1.0`). If you yank that constraint you’ll get resolver failures until Transformers 5.0 lifts the cap.
 - The hook finder assumes Llama-style decoder stacks (exposed as `model.layers` or `model.transformer.h`). Extending `_get_decoder_layers` is enough to support new architectures.
-- Set `TI_DEBUG_STRICT=1` (or any truthy value) to assert that the hooked residual stream tensors stay shape `[batch, tokens, hidden]` and that the hidden width matches your concept vector before every injection.
+- Set `TI_DEBUG_STRICT=1` (or any truthy value) to assert that the hooked residual stream tensors stay shape `[batch, tokens, hidden]` and that the hidden width matches your concept vector before every injection; the check runs inside `apply_injection` immediately after the `InjectionSchedule` mask resolves, so any dtype/shape mixups are caught before activations are modified.
 - Keep a copy of at least one successful injection transcript (e.g., `injection_output.txt`) so you can confirm future code changes still recreate the same “aquariums” bias without retuning hyperparameters.
 
 ## Development

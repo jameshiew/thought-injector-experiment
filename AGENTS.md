@@ -25,3 +25,4 @@
 - Typer 0.20.0 still rides on Click 8.1.x—upgrading Click past 8.1.8 revives the `Secondary flag is not valid for non-boolean flag.` crash when using the shared `--normalize/--no-normalize` toggles, so keep the `<8.2` guard in `pyproject.toml`.
 - `transformers==4.57.1` hard-pins `huggingface-hub<1.0`; the newest release that satisfies that cap is `huggingface-hub==0.36.0` (2025-10-23). Use that floor so you still pick up the latest fixes without tripping the constraint.
 - README sanity check: you can replay the documented flow end-to-end today by running `capture-word`/`run` against `models/pharia-1-control`; saving a fresh vector (e.g., `vectors/aquariums_word_pharia_dep_bump.pt`) keeps both baseline and injected runs matching the write-up.
+- `gpu_supports_bfloat16()` only opts you into `bfloat16` when CUDA is available *and* reports bf16 support; otherwise helpers automatically fall back to `float16`, so rely on `resolve_dtype('auto')` instead of guessing.

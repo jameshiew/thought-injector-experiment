@@ -4,7 +4,12 @@ import pytest
 import typer
 
 from thought_injector import spans
-from thought_injector.text_utils import WindowSpec, token_index_from_char
+from thought_injector.text_utils import (
+    WindowSpec,
+    resolve_end_match_token_index,
+    resolve_start_match_token_index,
+    token_index_from_char,
+)
 
 
 class FakeEncoding(dict[str, object]):
@@ -38,6 +43,31 @@ class ZeroWidthTokenizer:
         printable_offsets = [(idx, idx + 1) for idx in range(len(prompt))]
         offsets = [(0, 0), (0, 0), *printable_offsets]
         token_ids = list(range(len(offsets)))
+        data: dict[str, object] = {"input_ids": [token_ids]}
+        if return_offsets_mapping:
+            data["offset_mapping"] = [offsets]
+        return FakeEncoding(data)
+
+
+class LineTokenizer:
+    def __call__(
+        self,
+        prompt: str,
+        add_special_tokens: bool = True,
+        return_offsets_mapping: bool = False,
+    ) -> FakeEncoding:
+        offsets: list[tuple[int, int]] = []
+        token_ids: list[int] = []
+        cursor = 0
+        token_index = 0
+        chunks = prompt.splitlines(keepends=True) or [prompt]
+        for chunk in chunks:
+            start = cursor
+            end = start + len(chunk)
+            offsets.append((start, end))
+            token_ids.append(token_index)
+            cursor = end
+            token_index += 1
         data: dict[str, object] = {"input_ids": [token_ids]}
         if return_offsets_mapping:
             data["offset_mapping"] = [offsets]
@@ -97,6 +127,23 @@ def test_token_index_from_char_handles_end_anchor_with_zero_width_offsets() -> N
     anchor = len(prompt)
     index = token_index_from_char(tokenizer, prompt, anchor)
     assert index == len(prompt) + 1  # last printable token index (with two zero-width tokens)
+
+
+def test_match_resolution_handles_multi_char_tokens() -> None:
+    tokenizer = LineTokenizer()
+    start_idx = resolve_start_match_token_index(tokenizer, PROMPT, "Trial 1:", 1)
+    end_idx = resolve_end_match_token_index(tokenizer, PROMPT, "Trial 1:", 1)
+
+    assert 0 <= start_idx <= end_idx
+
+    encoding = tokenizer(PROMPT, return_offsets_mapping=True)
+    offsets = encoding["offset_mapping"][0]
+    token_text = [PROMPT[start:end] for start, end in offsets]
+    trial_line_idx = next(idx for idx, text in enumerate(token_text) if text.startswith("Trial 1:"))
+
+    assert start_idx <= trial_line_idx <= end_idx
+    anchor_char = spans.locate_start_anchor(PROMPT, "Trial 1:", 1)
+    assert start_idx < anchor_char  # token index is not the raw char offset
 
 
 def test_window_spec_requires_anchor_for_custom_occurrence() -> None:

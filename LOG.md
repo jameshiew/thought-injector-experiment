@@ -1,3 +1,9 @@
+# 2025-11-13 - robustness + docs polish
+
+- Hardened `gpu_supports_bfloat16()`/`resolve_dtype('auto')`, added docstrings around the tokenization helpers, and tightened `get_decoder_layers` errors so debugging new models includes the inspected attributes. Injection schedules now short-circuit empty sequences, and `_print_resolved_span` tells you when `--generated-only` is simply waiting for fresh tokens.
+- Refactored `token_index_from_char` for readability, expanded the span tests to cover multi-character tokens + mixed window specs, and added a `resolve_mask` regression test so `InjectionSchedule` keeps behaving with `apply_all`, windows, or generated-only slices.
+- README/AGENTS call out the 1-D concept vector + `TI_DEBUG_STRICT` invariants, while `download.py` and docs pick up the logging/cleanup tweaks that landed with this batch.
+
 # 2025-11-13 - CLI rehab & README replay
 
 - `thought-injector run`/`sweep` were throwing `AttributeError: 'NoneType' object has no attribute 'isidentifier'` and `Secondary flag is not valid for non-boolean flag.` as soon as Typer tried to build the commands on Typer 0.12.5 + Click 8.3.0. Fixed the CLI by (a) removing positional defaults from the shared `typer.Option` metadata when used via `Annotated[...]`, and (b) pinning Click to the 8.1.x series where Typer’s boolean-flag assumptions still hold.

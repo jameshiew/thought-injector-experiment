@@ -17,7 +17,7 @@ from thought_injector.vectors import (
 
 def test_save_and_load_vector_round_trip(tmp_path: Path) -> None:
     path = tmp_path / "concept.pt"
-    vector = torch.ones(2, 4)
+    vector = torch.ones(8)
     metadata = {
         "model_path": "./model",
         "layer_index": 1,
@@ -31,6 +31,16 @@ def test_save_and_load_vector_round_trip(tmp_path: Path) -> None:
     assert torch.equal(record.vector, vector)
     assert record.metadata.layer_index == 1
     assert record.metadata.prompts == {"positive": "Tell me X"}
+
+
+def test_save_and_load_vector_with_multi_dimensional_tensor(tmp_path: Path) -> None:
+    path = tmp_path / "concept_2d.pt"
+    vector = torch.arange(0, 6, dtype=torch.float32).reshape(2, 3)
+    save_vector(path, vector, {"layer_index": 0})
+
+    record = load_vector(path)
+    assert record.vector.shape == (2, 3)
+    assert torch.equal(record.vector, vector)
 
 
 def test_save_vector_rejects_invalid_metadata(tmp_path: Path) -> None:

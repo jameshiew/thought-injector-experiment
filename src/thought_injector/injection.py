@@ -36,7 +36,15 @@ OutputLike = LastHiddenStateOutput | torch.Tensor | tuple[torch.Tensor, ...]
 
 
 class InjectionSchedule(BaseModel):
-    """Structured description of where activation injection should occur."""
+    """Describe how injections target tokens.
+
+    `window_start` and `window_end` are token indices (inclusive). Leaving
+    `window_end=None` or `window_end==-1` keeps the window open through the
+    final position. `generated_only` masks off the prompt prefix using
+    `prompt_length`, while `single_index` lets callers focus a single token.
+    When `generated_only` is enabled without any explicit indices, injections
+    begin at the first generated token (>= `prompt_length`).
+    """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -82,6 +90,8 @@ class InjectionSchedule(BaseModel):
 
     def resolve_mask(self, seq_len: int, device: torch.device) -> torch.Tensor:
         """Build a boolean mask highlighting the targeted token positions."""
+        if seq_len <= 0:
+            return torch.zeros(0, dtype=torch.bool, device=device)
         mask = torch.zeros(seq_len, dtype=torch.bool, device=device)
         has_window = self.has_window()
         effective_apply_all = self._effective_apply_all()

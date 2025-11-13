@@ -48,13 +48,14 @@ class HiddenStateOutput(Protocol):
 
 
 def gpu_supports_bfloat16() -> bool:
+    """Return True when the active CUDA device can execute bfloat16 kernels."""
     if not torch.cuda.is_available():
         return False
 
     is_bf16_supported = getattr(torch.cuda, "is_bf16_supported", None)
     if callable(is_bf16_supported):
         try:
-            if torch.cuda.is_bf16_supported():
+            if is_bf16_supported():
                 return True
         except RuntimeError:
             return False
@@ -67,6 +68,7 @@ def gpu_supports_bfloat16() -> bool:
 
 
 def resolve_dtype(name: str) -> torch.dtype:
+    """Translate CLI dtype names, preferring bf16 on GPUs when 'auto' is used."""
     if name == "auto":
         name = "bfloat16" if gpu_supports_bfloat16() else "float16"
         console.print(f"Auto-selecting torch dtype '{name}'.")
@@ -79,6 +81,7 @@ def resolve_dtype(name: str) -> torch.dtype:
 
 
 def resolve_device(name: str) -> torch.device:
+    """Resolve device strings, defaulting to CUDA when available."""
     if name == "auto":
         return torch.device("cuda" if torch.cuda.is_available() else "cpu")
     return torch.device(name)
@@ -136,7 +139,10 @@ def get_decoder_layers(model: PreTrainedModel) -> LayerSequence:
         if layers is not None:
             return layers
     raise RuntimeError(
-        "Could not locate decoder layers. This implementation currently supports Llama-style models."
+        "Could not locate decoder layers on "
+        f"{type(model)!r}; searched attributes {candidates}. "
+        "Available attributes include: "
+        f"{dir(model)}. This implementation currently supports Llama-style models."
     )
 
 
@@ -152,6 +158,7 @@ def resolve_layer(model: PreTrainedModel, layer_index: int) -> nn.Module:
 def tokenize(
     tokenizer: PreTrainedTokenizerBase, prompt: str, device: torch.device
 ) -> dict[str, torch.Tensor]:
+    """Tokenize a prompt, dropping token_type_ids but preserving attention masks."""
     encoded: BatchEncoding = tokenizer(prompt, return_tensors="pt")
     encoded_data = cast(dict[str, torch.Tensor], encoded.data)
     tensors: dict[str, torch.Tensor] = dict(encoded_data)

@@ -137,24 +137,35 @@ def download_file(repo_id: str, filename: str, dest: Path, token: str | None) ->
     request = urllib.request.Request(url, headers=headers)
     print(f"[download] {dest.name}")
     start = time.time()
-    with urllib.request.urlopen(request) as response, tmp_path.open("wb") as handle:
-        total = int(response.headers.get("Content-Length", "0"))
-        downloaded = 0
-        while True:
-            chunk = response.read(CHUNK_SIZE)
-            if not chunk:
-                break
-            handle.write(chunk)
-            downloaded += len(chunk)
-            if total:
-                pct = downloaded * 100 // total
-                sys.stdout.write(
-                    f"\r    {downloaded / (1 << 20):.2f} MiB / {total / (1 << 20):.2f} MiB ({pct}%)"
-                )
-                sys.stdout.flush()
-    tmp_path.rename(dest)
+    downloaded = 0
+    total = 0
+    try:
+        try:
+            with urllib.request.urlopen(request) as response, tmp_path.open("wb") as handle:
+                total = int(response.headers.get("Content-Length", "0"))
+                while True:
+                    chunk = response.read(CHUNK_SIZE)
+                    if not chunk:
+                        break
+                    handle.write(chunk)
+                    downloaded += len(chunk)
+                    if total:
+                        pct = downloaded * 100 // total
+                        sys.stdout.write(
+                            f"\r    {downloaded / (1 << 20):.2f} MiB / {total / (1 << 20):.2f} MiB ({pct}%)"
+                        )
+                        sys.stdout.flush()
+        except Exception:
+            raise
+        tmp_path.rename(dest)
+    finally:
+        if tmp_path.exists():
+            tmp_path.unlink(missing_ok=True)
     elapsed = time.time() - start
-    sys.stdout.write(f"\r    done in {elapsed:.1f}s{' ' * 15}\n")
+    sys.stdout.write(
+        f"\r[done] {dest.name} in {elapsed:.1f}s"
+        f" ({downloaded / (1 << 20):.2f} MiB)" + " " * 8 + "\n"
+    )
 
 
 def ensure_file(

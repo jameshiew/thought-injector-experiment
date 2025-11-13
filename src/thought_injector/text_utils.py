@@ -111,12 +111,29 @@ def flatten_first_sequence(values: Any) -> list[Any]:
     return [values]
 
 
-def token_index_from_char(tokenizer: PreTrainedTokenizerBase, prompt: str, char_index: int) -> int:
-    encoding: BatchEncoding = tokenizer(
-        prompt,
-        add_special_tokens=True,
-        return_offsets_mapping=True,
-    )
+def _offset_pairs_from_mapping(
+    offsets: torch.Tensor | list[Any] | tuple[Any, ...] | None,
+) -> list[tuple[int, int]] | None:
+    if offsets is None:
+        return None
+    flattened_offsets = flatten_first_sequence(offsets)
+    candidate_offsets: list[tuple[int, int]] = []
+    for pair in flattened_offsets:
+        if not isinstance(pair, (list, tuple)):
+            return None
+        pair_seq = cast(Sequence[Any], pair)
+        if len(pair_seq) != 2:
+            return None
+        try:
+            start_val = int(pair_seq[0])
+            end_val = int(pair_seq[1])
+        except (TypeError, ValueError):
+            return None
+        candidate_offsets.append((start_val, end_val))
+    return candidate_offsets
+
+
+def _offset_pairs_from_encoding(encoding: BatchEncoding) -> list[tuple[int, int]] | None:
     encoding_map = cast(Mapping[str, Any], encoding)
     offsets = cast(
         torch.Tensor | list[Any] | tuple[Any, ...] | None,
@@ -127,43 +144,35 @@ def token_index_from_char(tokenizer: PreTrainedTokenizerBase, prompt: str, char_
         offsets = cast(
             torch.Tensor | list[Any] | tuple[Any, ...] | None, encoding_data.get("offset_mapping")
         )
-    offsets_seq: list[tuple[int, int]] | None = None
-    if offsets is not None:
-        flattened_offsets = flatten_first_sequence(offsets)
-        candidate_offsets: list[tuple[int, int]] = []
-        valid_offsets = True
-        for pair in flattened_offsets:
-            if not isinstance(pair, (list, tuple)):
-                valid_offsets = False
-                break
-            pair_seq = cast(Sequence[Any], pair)
-            if len(pair_seq) != 2:
-                valid_offsets = False
-                break
-            start_val = int(pair_seq[0])
-            end_val = int(pair_seq[1])
-            candidate_offsets.append((start_val, end_val))
-        if valid_offsets:
-            offsets_seq = candidate_offsets
+    return _offset_pairs_from_mapping(offsets)
 
-    if offsets_seq is not None:
-        saw_non_zero = False
-        last_non_zero_index: int | None = None
-        for idx, (start, end) in enumerate(offsets_seq):
-            if end <= start:
-                continue
-            saw_non_zero = True
-            last_non_zero_index = idx
-            if start <= char_index < end:
-                return idx
-        if saw_non_zero:
-            if char_index >= len(prompt) and last_non_zero_index is not None:
-                return last_non_zero_index
-            raise typer.BadParameter(
-                "Could not map character offset to a tokenizer index; check --start-match anchor."
-            )
-        offsets_seq = None
 
+def _index_from_offsets(
+    offsets_seq: list[tuple[int, int]] | None,
+    prompt: str,
+    char_index: int,
+) -> int | None:
+    if offsets_seq is None:
+        return None
+    saw_non_zero = False
+    last_non_zero_index: int | None = None
+    for idx, (start, end) in enumerate(offsets_seq):
+        if end <= start:
+            continue
+        saw_non_zero = True
+        last_non_zero_index = idx
+        if start <= char_index < end:
+            return idx
+    if saw_non_zero:
+        if char_index >= len(prompt) and last_non_zero_index is not None:
+            return last_non_zero_index
+        raise typer.BadParameter(
+            "Could not map character offset to a tokenizer index; check --start-match anchor."
+        )
+    return None
+
+
+def _fallback_token_index(tokenizer: PreTrainedTokenizerBase, prompt: str, char_index: int) -> int:
     prefix_end = min(char_index + 1, len(prompt))
     prefix = prompt[:prefix_end]
     prefix_encoding: BatchEncoding = tokenizer(prefix, add_special_tokens=True)
@@ -183,6 +192,21 @@ def token_index_from_char(tokenizer: PreTrainedTokenizerBase, prompt: str, char_
             "Tokenizer must return integer token ids for --start-match fallback."
         ) from exc
     return max(len(prefix_seq) - 1, 0)
+
+
+def token_index_from_char(tokenizer: PreTrainedTokenizerBase, prompt: str, char_index: int) -> int:
+    """Two-phase lookup: prefer offset mappings, then fall back to prefix re-tokenization."""
+
+    encoding: BatchEncoding = tokenizer(
+        prompt,
+        add_special_tokens=True,
+        return_offsets_mapping=True,
+    )
+    offsets_seq = _offset_pairs_from_encoding(encoding)
+    index = _index_from_offsets(offsets_seq, prompt, char_index)
+    if index is not None:
+        return index
+    return _fallback_token_index(tokenizer, prompt, char_index)
 
 
 def resolve_start_match_token_index(
