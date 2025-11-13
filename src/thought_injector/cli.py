@@ -24,6 +24,7 @@ from thought_injector.models import (
     resolve_dtype,
     tokenize,
 )
+from thought_injector.pairs import PromptPair, load_prompt_pairs
 from thought_injector.text_utils import WindowSpec, diff_length
 from thought_injector.vectors import load_prepared_vector, load_vector, save_vector
 
@@ -522,6 +523,95 @@ def capture_word(
         "prompts": {
             "positive": positive_prompt,
             "baseline": [f"Tell me about {w}." for w in selected],
+        },
+    }
+    save_vector(output_path, vector, metadata)
+    rms = torch.sqrt(torch.mean(vector**2)).item()
+    console.print(f"Vector RMS: {rms:.6f}")
+
+
+@typed_command()
+def capture_pairs(
+    model_path: Annotated[
+        Path,
+        typer.Option(
+            ...,
+            "--model-path",
+            "-m",
+            help="Path to the local HF-format model directory.",
+        ),
+    ],
+    pairs_path: Annotated[
+        Path,
+        typer.Option(
+            ...,
+            "--pairs-path",
+            help="JSON/CSV file containing minimal prompt pairs.",
+        ),
+    ],
+    layer_index: Annotated[
+        int,
+        typer.Option(help="Decoder layer to sample (0-based)."),
+    ] = 0,
+    token_index: Annotated[
+        int,
+        typer.Option(help="Token index to probe (supports negatives)."),
+    ] = -1,
+    max_pairs: Annotated[
+        int | None,
+        typer.Option(help="Optional cap; use only the first N pairs from the file."),
+    ] = None,
+    output_path: Annotated[
+        Path,
+        typer.Option(help="Where to store the concept vector."),
+    ] = Path("vectors/concept.safetensors"),
+    dtype: Annotated[
+        str,
+        typer.Option(help="Torch dtype for model weights; 'auto' prefers bf16 when supported."),
+    ] = "auto",
+    device: Annotated[
+        str,
+        typer.Option(help="Device identifier or 'auto'."),
+    ] = "auto",
+) -> None:
+    """Capture a concept vector by averaging minimal prompt pairs."""
+
+    if max_pairs is not None and max_pairs <= 0:
+        raise typer.BadParameter("--max-pairs must be positive when provided.")
+
+    pairs: list[PromptPair] = load_prompt_pairs(pairs_path)
+    if max_pairs is not None:
+        pairs = pairs[:max_pairs]
+        if not pairs:
+            raise typer.BadParameter(
+                "Pairs list is empty after applying --max-pairs; increase the limit."
+            )
+
+    torch_dtype = resolve_dtype(dtype)
+    torch_device = resolve_device(device)
+    model, tokenizer = load_model_and_tokenizer(model_path, torch_dtype, torch_device)
+
+    diffs: list[torch.Tensor] = []
+    for pair in pairs:
+        pos_hidden = extract_hidden_state(
+            model, tokenizer, pair.positive, layer_index, token_index, torch_device
+        )
+        neg_hidden = extract_hidden_state(
+            model, tokenizer, pair.negative, layer_index, token_index, torch_device
+        )
+        diffs.append(pos_hidden - neg_hidden)
+
+    stacked = torch.stack(diffs)
+    vector = stacked.mean(dim=0).to(torch.float32)
+
+    metadata = {
+        "model_path": str(model_path),
+        "layer_index": layer_index,
+        "token_index": token_index,
+        "pairs_source": str(pairs_path),
+        "pair_count": len(pairs),
+        "prompts": {
+            "pairs": [{"positive": pair.positive, "negative": pair.negative} for pair in pairs]
         },
     }
     save_vector(output_path, vector, metadata)

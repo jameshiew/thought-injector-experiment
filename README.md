@@ -17,11 +17,51 @@ The CLI entry point becomes available as `uv run thought-injector`.
 
 ## 1. Capture a concept vector
 
-`thought-injector` now supports the paper-style “positive minus baseline mean” recipe in addition to classic contrastive capture. `--dtype auto` prefers `bfloat16` on GPUs that support it and falls back to `float16` elsewhere. Typer exposes CLI commands with hyphenated names (`capture-word`, `inspect-vector`, etc.).
+`thought-injector` now includes a minimal-pair capture pipeline so vectors stay focused on the actual concept instead of the “please think about ___” instruction-following circuitry. We still ship the earlier word/baseline recipe plus the raw contrastive command for backwards compatibility. `--dtype auto` prefers `bfloat16` on GPUs that support it and falls back to `float16` elsewhere. Typer exposes CLI commands with hyphenated names (`capture-pairs`, `capture-word`, `inspect-vector`, etc.).
 
-### Paper-style word capture (recommended)
+### Minimal-pair capture (recommended)
 
-`capture_word` prompts the model with `Tell me about {word}.`, subtracts the mean response over ~100 diverse baseline nouns/verbs/abstracts, and stores the resulting vector with full metadata.
+Vectors built from prompts like “Think about the word dog” mostly encode the meta-instruction (reasoning scaffolds, helpfulness, alignment traces) rather than the semantic feature you care about. Instead, write two short sentences that only differ in the target concept and let `capture-pairs` average their hidden-state differences. Ten to twenty minimal pairs are enough to drown out residual syntactic noise.
+
+Create a JSONL/NDJSON/CSV file where each row lists a `positive` sentence (contains the concept) and a `negative`/`baseline` sentence (identical framing without it):
+
+```jsonl
+{"positive": "A dog is chasing a tennis ball.", "negative": "A person is chasing a tennis ball."}
+{"positive": "The dog naps beside the humming refrigerator.", "negative": "The person naps beside the humming refrigerator."}
+{"positive": "Our dog guards the back door.", "negative": "Our robot guards the back door."}
+```
+
+Then run:
+
+```bash
+uv run thought-injector capture-pairs \
+  -m models/pharia-1-control \
+  --pairs-path prompts/examples/dog_vs_person.jsonl \
+  --layer-index 20 \
+  --token-index -1 \
+  --max-pairs 10 \
+  --output-path vectors/dog_pairs_pharia_layer20.safetensors
+```
+
+`capture-pairs` accepts `.json`, `.jsonl`/`.ndjson`, `.csv`, or `.tsv`. The negative column can also be named `baseline` or `control`. Use `--max-pairs` to cap how many rows are consumed (handy while iterating). Metadata now records `pairs_source`, the pair count, and an inline copy of the prompts so you can audit which minimal pairs produced a vector months later.
+
+Sample datasets live in `prompts/examples/` so you can test the workflow immediately:
+
+- `prompts/examples/dog_vs_person.jsonl` — swaps `dog` for a human/neutral agent across 10 short scenes.
+- `prompts/examples/loud_vs_soft.jsonl` — pairs loud descriptors with quiet/soft counterparts so you isolate loudness.
+- `prompts/examples/warm_vs_cool.jsonl` — contrasts warm vs. cool/cold framings across household contexts.
+
+Need a ready-to-go concept vector for smoke tests? We version the outputs of those corpora under `vectors/`:
+
+- `vectors/dog_pairs_pharia_layer20.safetensors` (layer 20, token -1, 10 pairs)
+- `vectors/loud_pairs_pharia_layer20.safetensors` (layer 20, token -1, 10 pairs)
+- `vectors/warm_pairs_pharia_layer20.safetensors` (layer 20, token -1, 10 pairs)
+
+Each capture includes a `.json` sidecar with the exact prompts plus metadata, so you can diff future recaptures or cite them in experiment logs.
+
+### Paper-style word capture (fallback)
+
+`capture_word` prompts the model with `Tell me about {word}.`, subtracts the mean response over ~100 diverse baseline nouns/verbs/abstracts, and stores the resulting vector with full metadata. Because the template is still an instruction, these vectors carry a bit more alignment noise than the minimal-pair workflow above, but they remain a quick way to reproduce the setup described in `DESIGN.md`.
 
 Captured vectors are persisted as 1-D tensors whose length equals the model's `hidden_size`; the CLI validates this invariant before every injection so downstream tools can assume the exact shape. Each capture writes `<name>.safetensors` for the tensor and `<name>.json` for the metadata, so both files travel together in Git.
 
