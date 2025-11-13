@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import difflib
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass
 from typing import Any, cast
 
 import torch
@@ -9,6 +10,57 @@ import typer
 from transformers.tokenization_utils_base import BatchEncoding, PreTrainedTokenizerBase
 
 from thought_injector.spans import AnchorError, locate_end_anchor, locate_start_anchor
+
+
+@dataclass(frozen=True)
+class WindowSpec:
+    """Declarative description of how CLI flags shape an injection window."""
+
+    start_index: int | None = None
+    end_index: int | None = None
+    start_match: str | None = None
+    end_match: str | None = None
+    start_occurrence: int = 1
+    end_occurrence: int = 1
+
+    def validate(self) -> None:
+        if self.start_occurrence <= 0:
+            raise typer.BadParameter("--start-occurrence must be >= 1.")
+        if self.end_occurrence <= 0:
+            raise typer.BadParameter("--end-occurrence must be >= 1.")
+        if self.start_match is None and self.start_occurrence != 1:
+            raise typer.BadParameter("--start-occurrence requires --start-match.")
+        if self.end_match is None and self.end_occurrence != 1:
+            raise typer.BadParameter("--end-occurrence requires --end-match.")
+
+    def resolve(
+        self, tokenizer: PreTrainedTokenizerBase, prompt: str
+    ) -> tuple[int | None, int | None]:
+        start_idx = self._resolve_start(tokenizer, prompt)
+        end_idx = self._resolve_end(tokenizer, prompt)
+        if start_idx is not None and end_idx is None:
+            end_idx = -1
+        return start_idx, end_idx
+
+    def _resolve_start(self, tokenizer: PreTrainedTokenizerBase, prompt: str) -> int | None:
+        if self.start_match is None:
+            return self.start_index
+        return resolve_start_match_token_index(
+            tokenizer,
+            prompt,
+            self.start_match,
+            self.start_occurrence,
+        )
+
+    def _resolve_end(self, tokenizer: PreTrainedTokenizerBase, prompt: str) -> int | None:
+        if self.end_match is None:
+            return self.end_index
+        return resolve_end_match_token_index(
+            tokenizer,
+            prompt,
+            self.end_match,
+            self.end_occurrence,
+        )
 
 
 def flatten_first_sequence(values: Any) -> list[Any]:

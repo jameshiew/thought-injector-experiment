@@ -24,11 +24,7 @@ from thought_injector.models import (
     resolve_dtype,
     tokenize,
 )
-from thought_injector.text_utils import (
-    diff_length,
-    resolve_end_match_token_index,
-    resolve_start_match_token_index,
-)
+from thought_injector.text_utils import WindowSpec, diff_length
 from thought_injector.vectors import (
     ensure_vector_matches_model,
     load_vector,
@@ -341,10 +337,15 @@ def run(
 ) -> None:
     """Run the prompt with optional activation injection."""
 
-    if start_match is None and start_occurrence != 1:
-        raise typer.BadParameter("--start-occurrence requires --start-match.")
-    if end_match is None and end_occurrence != 1:
-        raise typer.BadParameter("--end-occurrence requires --end-match.")
+    window_spec = WindowSpec(
+        start_index=start_index,
+        end_index=end_index,
+        start_match=start_match,
+        end_match=end_match,
+        start_occurrence=start_occurrence,
+        end_occurrence=end_occurrence,
+    )
+    window_spec.validate()
 
     if seed is not None:
         _seed_rng(seed)
@@ -357,18 +358,7 @@ def run(
     inputs = tokenize(tokenizer, prompt, torch_device)
     prompt_length = inputs["input_ids"].shape[1]
 
-    resolved_start_index = start_index
-    if start_match is not None:
-        resolved_start_index = resolve_start_match_token_index(
-            tokenizer, prompt, start_match, start_occurrence
-        )
-    resolved_end_index = end_index
-    if end_match is not None:
-        resolved_end_index = resolve_end_match_token_index(
-            tokenizer, prompt, end_match, end_occurrence
-        )
-    if resolved_start_index is not None and resolved_end_index is None:
-        resolved_end_index = -1
+    resolved_start_index, resolved_end_index = window_spec.resolve(tokenizer, prompt)
 
     schedule = InjectionSchedule(
         apply_all=apply_all_tokens,
@@ -550,10 +540,15 @@ def sweep(
 ) -> None:
     """Sweep layer/strength combinations and log outputs to CSV."""
 
-    if start_match is None and start_occurrence != 1:
-        raise typer.BadParameter("--start-occurrence requires --start-match.")
-    if end_match is None and end_occurrence != 1:
-        raise typer.BadParameter("--end-occurrence requires --end-match.")
+    window_spec = WindowSpec(
+        start_index=start_index,
+        end_index=end_index,
+        start_match=start_match,
+        end_match=end_match,
+        start_occurrence=start_occurrence,
+        end_occurrence=end_occurrence,
+    )
+    window_spec.validate()
 
     if seed is not None:
         _seed_rng(seed)
@@ -570,18 +565,7 @@ def sweep(
     base_inputs = tokenize(tokenizer, prompt, torch_device)
     prompt_length = base_inputs["input_ids"].shape[1]
 
-    resolved_start_index = start_index
-    if start_match is not None:
-        resolved_start_index = resolve_start_match_token_index(
-            tokenizer, prompt, start_match, start_occurrence
-        )
-    resolved_end_index = end_index
-    if end_match is not None:
-        resolved_end_index = resolve_end_match_token_index(
-            tokenizer, prompt, end_match, end_occurrence
-        )
-    if resolved_start_index is not None and resolved_end_index is None:
-        resolved_end_index = -1
+    resolved_start_index, resolved_end_index = window_spec.resolve(tokenizer, prompt)
 
     schedule = InjectionSchedule(
         apply_all=apply_all_tokens,

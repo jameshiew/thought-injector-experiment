@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import pytest
+import typer
 
 from thought_injector import spans
-from thought_injector.text_utils import token_index_from_char
+from thought_injector.text_utils import WindowSpec, token_index_from_char
 
 
 class FakeEncoding(dict[str, object]):
@@ -96,3 +97,41 @@ def test_token_index_from_char_handles_end_anchor_with_zero_width_offsets() -> N
     anchor = len(prompt)
     index = token_index_from_char(tokenizer, prompt, anchor)
     assert index == len(prompt) + 1  # last printable token index (with two zero-width tokens)
+
+
+def test_window_spec_requires_anchor_for_custom_occurrence() -> None:
+    spec = WindowSpec(start_occurrence=2)
+    with pytest.raises(typer.BadParameter):
+        spec.validate()
+
+
+def test_window_spec_resolves_matches_to_indices() -> None:
+    tokenizer = CharTokenizer()
+    spec = WindowSpec(start_match="Trial 1:", end_match="Trial 2:")
+    spec.validate()
+
+    start_idx, end_idx = spec.resolve(tokenizer, PROMPT)
+    expected_start = PROMPT.rfind("\n", 0, PROMPT.find("Trial 1:"))
+    trial2_end = PROMPT.find("Trial 2:") + len("Trial 2:")
+    expected_end = PROMPT.find("\n", trial2_end)
+
+    assert start_idx == expected_start
+    assert end_idx == expected_end
+
+
+def test_window_spec_defaults_end_to_negative_one_when_only_start_specified() -> None:
+    tokenizer = CharTokenizer()
+    spec = WindowSpec(start_index=5)
+    spec.validate()
+    start_idx, end_idx = spec.resolve(tokenizer, PROMPT)
+    assert start_idx == 5
+    assert end_idx == -1
+
+
+def test_window_spec_leaves_indices_none_when_unset() -> None:
+    tokenizer = CharTokenizer()
+    spec = WindowSpec()
+    spec.validate()
+    start_idx, end_idx = spec.resolve(tokenizer, PROMPT)
+    assert start_idx is None
+    assert end_idx is None

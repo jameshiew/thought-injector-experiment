@@ -36,6 +36,8 @@ OutputLike = LastHiddenStateOutput | torch.Tensor | tuple[torch.Tensor, ...]
 
 
 class InjectionSchedule(BaseModel):
+    """Structured description of where activation injection should occur."""
+
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     apply_all: bool = False
@@ -52,10 +54,20 @@ class InjectionSchedule(BaseModel):
         return self
 
     def has_window(self) -> bool:
+        """Return True when an explicit start/end window is configured."""
         return self.window_start is not None or self.window_end is not None
 
     def requires_full_sequence(self) -> bool:
+        """Signal that the whole sequence must be recomputed (disables KV cache)."""
         return self.apply_all or self.has_window() or self.generated_only
+
+    def _effective_apply_all(self) -> bool:
+        """Determine whether the schedule should touch every token in the sequence."""
+        if self.apply_all:
+            return True
+        if not self.generated_only:
+            return False
+        return self.single_index is None and not self.has_window()
 
     def _resolve_window_bounds(self, seq_len: int) -> tuple[int, int]:
         start_raw = 0 if self.window_start is None else self.window_start
@@ -69,12 +81,10 @@ class InjectionSchedule(BaseModel):
         return start_idx, end_idx
 
     def resolve_mask(self, seq_len: int, device: torch.device) -> torch.Tensor:
+        """Build a boolean mask highlighting the targeted token positions."""
         mask = torch.zeros(seq_len, dtype=torch.bool, device=device)
         has_window = self.has_window()
-        effective_apply_all = self.apply_all or (
-            self.generated_only
-            and not (self.apply_all or has_window or self.single_index is not None)
-        )
+        effective_apply_all = self._effective_apply_all()
 
         if effective_apply_all:
             mask[:] = True
@@ -99,14 +109,12 @@ class InjectionSchedule(BaseModel):
         return mask
 
     def resolved_span(self, seq_len: int) -> tuple[int, int] | None:
+        """Return the inclusive index span that will be modified, if any."""
         if seq_len <= 0:
             return None
 
         has_window = self.has_window()
-        effective_apply_all = self.apply_all or (
-            self.generated_only
-            and not (self.apply_all or has_window or self.single_index is not None)
-        )
+        effective_apply_all = self._effective_apply_all()
 
         span: tuple[int, int]
         if effective_apply_all:
