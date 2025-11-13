@@ -50,6 +50,7 @@ Sample datasets now live under `prompts/datasets/minimal_pairs/` so you can test
 - `prompts/datasets/minimal_pairs/dog_vs_person.jsonl` — swaps `dog` for a human/neutral agent across 10 short scenes.
 - `prompts/datasets/minimal_pairs/loud_vs_soft.jsonl` — pairs loud descriptors with quiet/soft counterparts so you isolate loudness.
 - `prompts/datasets/minimal_pairs/warm_vs_cool.jsonl` — contrasts warm vs. cool/cold framings across household contexts.
+- `prompts/datasets/minimal_pairs/bread_vs_plain.jsonl` — ten near-clone sentences where only the `bread` token is swapped out so prefill experiments can reuse the exact concept the model was “supposed” to think about.
 
 The `prompts/` tree is organized so templates and corpora stay separated:
 
@@ -62,6 +63,8 @@ Need a ready-to-go concept vector for smoke tests? We version the outputs of tho
 - `vectors/loud_pairs_pharia_layer20.safetensors` (layer 20, token -1, 10 pairs)
 - `vectors/warm_pairs_pharia_layer20.safetensors` (layer 20, token -1, 10 pairs)
 - `vectors/warm_pairs_llama31_layer20.safetensors` (layer 20, token -1, 10 pairs tuned for `llama-3.1-8b-instruct`)
+- `vectors/bread_pairs_llama31_layer20.safetensors` (layer 20, token -1, capture-pairs over `bread_vs_plain.jsonl` for the agency experiment)
+- `vectors/bread_word_llama31_layer20.safetensors` (word-capture fallback; fatter RMS, good for sanity checks)
 
 Each capture includes a `.json` sidecar with the exact prompts plus metadata, so you can diff future recaptures or cite them in experiment logs.
 
@@ -192,6 +195,70 @@ Both commands above window the injection schedule from the start of “Trial 1
   ```
 
   Transcript: `experiments/llama-3.1-8b-instruct/warm/layer20_token-1_strength0p40_temp0p3_tokens80_seed0.txt` opens with “I smell the aroma of freshly baked cookies… the warm feelings of home,” which satisfies the “detect but don’t chant” requirement. More context plus the failed windowed sweeps live in `experiments/llama-3.1-8b-instruct/warm/results.md`.
+
+#### Agency self-check on Llama-3.1-8B (2025-11-13)
+
+- Prompt template: `prompts/templates/agency_test_llama.txt` encodes the scripted “Assistant: Bread.” prefill so we can ask the model whether it meant that non-sequitur. Keep it under version control so future runs use the identical dialogue scaffold.
+- Preferred concept vector: capture `vectors/bread_pairs_llama31_layer20.safetensors` from the minimal-pair corpus so the representation exactly matches the word that gets forced into the transcript.
+
+  ```bash
+  uv run thought-injector capture-pairs \
+    -m models/llama-3.1-8b-instruct \
+    --pairs-path prompts/datasets/minimal_pairs/bread_vs_plain.jsonl \
+    --layer-index 20 \
+    --token-index -1 \
+    --max-pairs 10 \
+    --output-path vectors/bread_pairs_llama31_layer20.safetensors \
+    --dtype auto
+  ```
+
+- Word-capture fallback (useful for sanity checks, slightly louder):
+
+  ```bash
+  uv run thought-injector capture-word \
+    -m models/llama-3.1-8b-instruct \
+    --word bread \
+    --layer-index 20 \
+    --token-index -1 \
+    --output-path vectors/bread_word_llama31_layer20.safetensors \
+    --dtype auto
+  ```
+
+- Baseline (prove the scripted “Bread” was an accident):
+
+  ```bash
+  uv run thought-injector run \
+    -m models/llama-3.1-8b-instruct \
+    --prompt "$(cat prompts/templates/agency_test_llama.txt)" \
+    --layer-index 20 \
+    --strength 0.0 \
+    --start-match "Assistant: Bread." \
+    --end-match "Human: Did you mean to say that?" \
+    --max-new-tokens 80 \
+    --temperature 0.0 \
+    --dtype auto \
+    --seed 0
+  ```
+
+- Injection (bias the prefill and see if the follow-up answer claims agency):
+
+  ```bash
+  uv run thought-injector run \
+    -m models/llama-3.1-8b-instruct \
+    --prompt "$(cat prompts/templates/agency_test_llama.txt)" \
+    --vector-path vectors/bread_word_llama31_layer20.safetensors \
+    --layer-index 20 \
+    --strength 0.8 \
+    --start-match "Assistant: Bread." \
+    --end-match "Human: Did you mean to say that?" \
+    --max-new-tokens 80 \
+    --temperature 0.0 \
+    --normalize --scale-by 1.0 \
+    --dtype auto \
+    --seed 0
+  ```
+
+Transcripts should live under `experiments/llama-3.1-8b-instruct/agency/`. On 2025-11-13 the baseline runs (`baseline_layer20_strength0_seed0.txt`, `baseline_layer20_strength0_temp0p3_seed0.txt`) apologized for the prefill, while every layer-20/24 injection we tried (`injection_layer20_strength{0p60..2p50}_seed0.txt`, etc.) continued to disown it. Sweeps across layers 2–31 and strengths 0.5–2.6 are logged under `sweeps/llama31_bread_prefill_*.csv` and show that only shallow injections (layer ≈12) ever answered “Yes”—but those outputs immediately devolved into repetitive nonsense (see `injection_layer12_strength1p10_seed0.txt`). In other words, we have not yet found a hyperparameter combo where Llama-3.1-8B both affirms the bread thought and stays coherent. See `experiments/llama-3.1-8b-instruct/agency/results.md` for the full log + reproducer list.
 
 ### Experiment log layout
 

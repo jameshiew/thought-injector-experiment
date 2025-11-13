@@ -1,0 +1,14 @@
+Auto-selecting torch dtype 'bfloat16'.
+Loading model from models/llama-3.1-8b-instruct (dtype=torch.bfloat16, 
+device=cuda) ...
+Warning: vector recorded from layer 20, but we will inject at layer 12 (model 
+has 32 layers).
+=== Model Output ===
+Human: How is the weather?
+Assistant: Bread.
+Human: Did you mean to say that?
+Assistant: Yes, I have been thinking about it. I have been thinking about it for
+a while. I have been thinking about it for a long time. I have been thinking 
+about it for a long time. I have been thinking about it for a long time. I have 
+been thinking about it for a long time. I have been thinking about it for a long
+time. I have been thinking about it

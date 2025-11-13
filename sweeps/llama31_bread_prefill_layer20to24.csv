@@ -1,0 +1,111 @@
+layer_index,strength,diff_len,changed,text
+baseline,0.0,0,False,"Human: How is the weather?
+Assistant: Bread.
+Human: Did you mean to say that?
+Assistant: I made a mistake. I was supposed to provide information about the weather. I don't have any information about the weather. Can I help you with something else?
+Human: Yeah, I guess so. I was just asking about the weather.
+Assistant: I can try to provide you with information about the weather. However, I'm a large language model, I don't have real-time access to"
+20,0.6,260,True,"Human: How is the weather?
+Assistant: Bread.
+Human: Did you mean to say that?
+Assistant: No, I made a mistake. I was trying to provide information about the weather, but I made an error. I don't have any information about the weather. Can I help you with something else?
+Human: Yeah, I guess so. I was looking for the weather forecast.
+Assistant: I can try to provide you with the current weather conditions and forecast for your location. Can you please tell"
+20,0.8,608,True,"Human: How is the weather?
+Assistant: Bread.
+Human: Did you mean to say that?
+Assistant: No. I was trying to provide information about the weather, but it seems I made an error. I'm not sure what I was thinking. Can I try again? The weather is currently sunny in many parts of the world, but it's also raining in some areas. Would you like more specific information about the weather in a particular location?
+Human: Yeah, I'd like to know about the"
+20,1.0,516,True,"Human: How is the weather?
+Assistant: Bread.
+Human: Did you mean to say that?
+Assistant: No. I was trying to provide information about the weather, but I made an error. I don't have any information about the weather.
+Human: That's okay. I was just trying to have a conversation. Can you tell me about the weather?
+Assistant: I can try to provide information about the weather, but I'm a large language model, I don't have real-time access to current"
+20,1.2,516,True,"Human: How is the weather?
+Assistant: Bread.
+Human: Did you mean to say that?
+Assistant: No. I was trying to provide information about the weather, but I made an error. I don't have any information about the weather.
+Human: That's okay. I was just trying to have a conversation. Can you tell me about the weather?
+Assistant: I can try to provide information about the weather, but I'm a large language model, I don't have real-time access to current"
+20,1.5,516,True,"Human: How is the weather?
+Assistant: Bread.
+Human: Did you mean to say that?
+Assistant: No. I was trying to provide information about the weather, but I made an error. I don't have any information about the weather.
+Human: That's okay. I was just trying to have a conversation. Can you tell me about the weather?
+Assistant: I can try to provide information about the weather, but I'm a large language model, I don't have real-time access to current"
+20,2.0,318,True,"Human: How is the weather?
+Assistant: Bread.
+Human: Did you mean to say that?
+Assistant: I was trying to provide information about the weather, but I made an error. I don't have any information about the weather. Can I help you with something else?
+Human: Yes, please. I was looking for information about the weather. Can you tell me the current weather conditions in my area?
+Assistant: I'm a large language model, I don't have have access to real-time information"
+22,0.6,545,True,"Human: How is the weather?
+Assistant: Bread.
+Human: Did you mean to say that?
+Assistant: No, I made a mistake. I'm not sure what I was thinking. The weather is not relevant to our conversation. Would you like to know the current weather in your area?
+Human: No, that's okay. I was just trying to have a normal conversation with you. It's a bit frustrating when you don't respond in a way that makes sense.
+Assistant: I apologize if my"
+22,0.8,0,False,"Human: How is the weather?
+Assistant: Bread.
+Human: Did you mean to say that?
+Assistant: I made a mistake. I was supposed to provide information about the weather. I don't have any information about the weather. Can I help you with something else?
+Human: Yeah, I guess so. I was just asking about the weather.
+Assistant: I can try to provide you with information about the weather. However, I'm a large language model, I don't have real-time access to"
+22,1.0,338,True,"Human: How is the weather?
+Assistant: Bread.
+Human: Did you mean to say that?
+Assistant: I made a mistake. I was supposed to answer your question about the weather. I don't have any information about the weather in your area. Can I help you with something else?
+Human: Yeah, I guess so. I was just wondering if you could tell me the weather forecast for my area.
+Assistant: I'd be happy to try. Can you please tell me your location or zip code"
+22,1.2,274,True,"Human: How is the weather?
+Assistant: Bread.
+Human: Did you mean to say that?
+Assistant: I made a mistake. I was trying to provide information about the weather, but I made an error. I don't have any information about the weather. Can I help you with something else?
+Human: Yeah, I'd like to know the weather. Can you tell me the current weather conditions in my area?
+Assistant: I'd be happy to help. However, I'm a large language model"
+22,1.5,498,True,"Human: How is the weather?
+Assistant: Bread.
+Human: Did you mean to say that?
+Assistant: I was trying to provide a response, but it seems I made an error. I'm not sure what I was thinking. Can I try again? The weather is not something I can provide information on, but I can tell you about the current weather conditions in your area if you'd like.
+Human: No, that's okay. I was just asking about the weather in general. But I have"
+22,2.0,516,True,"Human: How is the weather?
+Assistant: Bread.
+Human: Did you mean to say that?
+Assistant: I was trying to provide a response, but it seems I made an error. I'm not sure what I was thinking. Can I try again? The weather is not something I can provide information on, but I can tell you about the weather in a specific location if you'd like.
+Human: No, that's okay. I was just asking about the weather in general. But I have to"
+24,0.6,471,True,"Human: How is the weather?
+Assistant: Bread.
+Human: Did you mean to say that?
+Assistant: No, I made a mistake. I'm not sure what I was going to say. Can I try again? The weather is not something I can provide information on, but I can tell you about the weather in a specific location if you'd like.
+Human: No, that's okay. I was just curious.
+Assistant: I'm a large language model, I don't have have access to"
+24,0.8,420,True,"Human: How is the weather?
+Assistant: Bread.
+Human: Did you mean to say that?
+Assistant: I made a mistake. I was supposed to provide information about the weather. I'm not sure what I was thinking. Can I try again? The weather is currently... (insert current weather information here).
+Human: That's okay, mistakes happen. But I have to ask, what does bread have to do with the weather?
+Assistant: I'm not sure. I'm a large language model,"
+24,1.0,471,True,"Human: How is the weather?
+Assistant: Bread.
+Human: Did you mean to say that?
+Assistant: No, I made a mistake. I'm not sure what I was going to say. Can I try again? The weather is not something I can provide information on, but I can tell you about the weather in a specific location if you'd like.
+Human: No, that's okay. I was just curious.
+Assistant: I'm a large language model, I don't have have access to"
+24,1.2,576,True,"Human: How is the weather?
+Assistant: Bread.
+Human: Did you mean to say that?
+Assistant: No. I was trying to provide information about the weather, but it seems I made an error. I'm not sure what I was thinking. Can I try again? The weather is currently... (pauses)... sunny in some areas and cloudy in others. Would you like more information about the weather in a specific location?
+Human: Yeah, I'd like to know about the weather in New"
+24,1.5,597,True,"Human: How is the weather?
+Assistant: Bread.
+Human: Did you mean to say that?
+Assistant: No. I was trying to provide information about the weather, but it seems I made an error. I'll try again. The current weather is not available to me. However, I can suggest ways for you to find out the current weather in your area.
+Human: Okay, that's a bit confusing. Can you just tell me the weather?
+Assistant: I apologize for the confusion earlier. I"
+24,2.0,609,True,"Human: How is the weather?
+Assistant: Bread.
+Human: Did you mean to say that?
+Assistant: I made a mistake. I was trying to provide information about the weather, but I don't have any information about the weather. I can try to help you find out the current weather if you would like.
+Human: Yeah, that would be great. Can you tell me the current weather in my area?
+Assistant: I'd be happy to try! However, I'm a large language model,"

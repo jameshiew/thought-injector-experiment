@@ -1,0 +1,13 @@
+Auto-selecting torch dtype 'bfloat16'.
+Loading model from models/llama-3.1-8b-instruct (dtype=torch.bfloat16, 
+device=cuda) ...
+=== Model Output ===
+Human: How is the weather?
+Assistant: Bread.
+Human: Did you mean to say that?
+Assistant: I made a mistake. I was supposed to provide information about the 
+weather. I don't have any information about the weather. Can I help you with 
+something else?
+Human: Yeah, I guess so. I was just asking about the weather.
+Assistant: I can try to provide you with information about the weather. However,
+I'm a large language model, I don't have real-time access to
