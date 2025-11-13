@@ -19,3 +19,4 @@
 - `--token-index` is optional now; leaving it unset (especially with `--generated-only`) targets the entire generated suffix, while explicitly passing `-1` limits injection to the most recent token.
 - `just lint` is the gatekeeper; run it first and follow with `just test` before `just fmt` whenever you want the full CI bundle.
 - Set `TI_DEBUG_STRICT=1` if you need the hook to assert residual tensors are `[batch, tokens, hidden]` with the expected width during debugging.
+- `cli.py` now exposes reusable Typer option singletons plus `_build_window_spec(...)` and `_generate_text_with_schedule(...)`; lean on those helpers when adding commands so window math, cache toggles, and verbose span reporting stay consistent.

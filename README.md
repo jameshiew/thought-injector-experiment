@@ -149,6 +149,11 @@ Helper code now lives in focused modules under `thought_injector/` so `cli.py` o
 - `text_utils.py` maps textual anchors to tokenizer indices and includes the sweep diff helper.
 - `baseline.py` keeps the default noun/verb lists in one place so experiments and docs can share them.
 
+CLI wiring details worth reusing when you add commands:
+
+- Shared Typer option singletons (e.g., the window/span flags, normalization toggles, etc.) now live at the top of `cli.py` so help text and defaults stay in sync between `run`, `sweep`, and future commands—import/reuse them instead of re-declaring new `typer.Option` objects.
+- `_build_window_spec(...)` centralizes validation for the textual/indexed span flags, while `_generate_text_with_schedule(...)` owns the “hook + cache toggle + decode” workflow. Calling those helpers keeps verbose span reporting, cache rules, and injection contexts consistent across every CLI entry point.
+
 Two helpers worth calling out when extending the CLI or writing new tooling:
 
 - `WindowSpec.build_schedule(...)` resolves your textual/indexed window flags and returns a ready-to-use `InjectionSchedule`, so there is no reason to duplicate the anchor math in Typer commands.

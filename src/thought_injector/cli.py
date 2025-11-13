@@ -13,7 +13,7 @@ from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 
 from thought_injector.app import app, console, typed_command
 from thought_injector.baseline import load_baseline_words
-from thought_injector.injection import injection_context
+from thought_injector.injection import InjectionSchedule, injection_context
 from thought_injector.models import (
     clone_inputs,
     extract_hidden_state,
@@ -31,6 +31,8 @@ if TYPE_CHECKING:
 
     class GenerationConfig:  # pragma: no cover - type stub
         def __init__(self, *args: Any, **kwargs: Any) -> None: ...
+
+    from transformers import PreTrainedModel
 
 else:
     from transformers import GenerationConfig
@@ -84,6 +86,146 @@ SWEEP_STRENGTH_OPTION = typer.Option(
     "--strength",
     help="One or more strengths to evaluate (repeat flag).",
 )
+WINDOW_START_INDEX_OPTION = typer.Option(
+    None,
+    "--start-index",
+    help="Optional start index (inclusive) for windowed injection.",
+)
+WINDOW_END_INDEX_OPTION = typer.Option(
+    None,
+    "--end-index",
+    help="Optional end index (inclusive) for windowed injection.",
+)
+WINDOW_START_MATCH_OPTION = typer.Option(
+    None,
+    "--start-match",
+    help="Substring anchor; injection begins on the newline preceding this match.",
+)
+WINDOW_END_MATCH_OPTION = typer.Option(
+    None,
+    "--end-match",
+    help="Substring anchor; injection ends on the newline following this match.",
+)
+WINDOW_START_OCCURRENCE_OPTION = typer.Option(
+    1,
+    "--start-occurrence",
+    help="1-based occurrence index for --start-match.",
+    min=1,
+    show_default=True,
+)
+WINDOW_END_OCCURRENCE_OPTION = typer.Option(
+    1,
+    "--end-occurrence",
+    help="1-based occurrence index for --end-match.",
+    min=1,
+    show_default=True,
+)
+APPLY_ALL_TOKENS_OPTION = typer.Option(
+    False,
+    "--apply-all-tokens",
+    help="If set, injects into every token in the sequence.",
+)
+GENERATED_ONLY_OPTION = typer.Option(
+    False,
+    "--generated-only",
+    help="Restrict injection to newly generated tokens.",
+)
+NORMALIZE_OPTION = typer.Option(
+    True,
+    "--normalize/--no-normalize",
+    help="Normalize the vector to unit RMS before scaling.",
+    show_default=True,
+)
+SCALE_BY_OPTION = typer.Option(
+    1.0,
+    "--scale-by",
+    help="Extra multiplier applied after normalization.",
+    show_default=True,
+)
+
+
+def _build_window_spec(
+    *,
+    start_index: int | None,
+    end_index: int | None,
+    start_match: str | None,
+    end_match: str | None,
+    start_occurrence: int,
+    end_occurrence: int,
+) -> WindowSpec:
+    spec = WindowSpec(
+        start_index=start_index,
+        end_index=end_index,
+        start_match=start_match,
+        end_match=end_match,
+        start_occurrence=start_occurrence,
+        end_occurrence=end_occurrence,
+    )
+    spec.validate()
+    return spec
+
+
+def _print_resolved_span(schedule: InjectionSchedule, prompt_length: int) -> None:
+    span = schedule.resolved_span(prompt_length)
+    if span is None:
+        console.print(
+            f"[yellow]Resolved token span is empty for prompt length {prompt_length}. Check your flags."
+        )
+        return
+    span_start, span_end = span
+    notes: list[str] = []
+    if schedule.has_window() and schedule.window_end == -1:
+        notes.append("end follows the latest token (open-ended)")
+    if schedule.generated_only:
+        gen_origin = schedule.prompt_length if schedule.prompt_length is not None else prompt_length
+        notes.append(f"generated-only (>= index {gen_origin})")
+    note_suffix = f" [{' | '.join(notes)}]" if notes else ""
+    console.print(f"[cyan]Resolved token span:[/cyan] {span_start}..{span_end}{note_suffix}")
+
+
+def _should_disable_cache(
+    model: PreTrainedModel | Any, schedule: InjectionSchedule, has_injection: bool
+) -> bool:
+    disable_cache = has_injection and schedule.requires_full_sequence()
+    if requires_cache_disabled(model):
+        return True
+    return disable_cache
+
+
+def _generate_text_with_schedule(
+    *,
+    model: PreTrainedModel | Any,
+    tokenizer: PreTrainedTokenizerBase,
+    inputs: dict[str, torch.Tensor],
+    generation_config: GenerationConfig,
+    schedule: InjectionSchedule,
+    vector: torch.Tensor | None,
+    layer_index: int | None,
+    strength: float | None,
+    include_prompt: bool,
+) -> str:
+    use_injection = vector is not None and layer_index is not None and strength is not None
+    disable_cache = _should_disable_cache(model, schedule, use_injection)
+    sampling_model = cast(Any, model)
+
+    if use_injection:
+        assert layer_index is not None  # for type checkers
+        assert vector is not None
+        assert strength is not None
+        ctx = injection_context(model, layer_index, vector, strength, schedule)
+    else:
+        ctx = nullcontext()
+
+    with torch.no_grad(), ctx:
+        output_ids = cast(
+            torch.Tensor,
+            sampling_model.generate(
+                **inputs,
+                generation_config=generation_config,
+                use_cache=not disable_cache,
+            ),
+        )
+    return _decode_output(tokenizer, output_ids[0], include_prompt=include_prompt)
 
 
 @typed_command()
@@ -268,52 +410,20 @@ def run(
         int | None,
         typer.Option(help="Token index for injection (omit for default behavior)."),
     ] = None,
-    start_index: Annotated[
-        int | None,
-        typer.Option(help="Optional start index (inclusive) for windowed injection."),
-    ] = None,
-    end_index: Annotated[
-        int | None,
-        typer.Option(help="Optional end index (inclusive) for windowed injection."),
-    ] = None,
-    start_match: Annotated[
-        str | None,
-        typer.Option(
-            help="Substring anchor; injection begins on the newline preceding this match."
-        ),
-    ] = None,
-    end_match: Annotated[
-        str | None,
-        typer.Option(help="Substring anchor; injection ends on the newline following this match."),
-    ] = None,
-    start_occurrence: Annotated[
-        int,
-        typer.Option(help="1-based occurrence index for --start-match.", min=1, show_default=True),
-    ] = 1,
-    end_occurrence: Annotated[
-        int,
-        typer.Option(help="1-based occurrence index for --end-match.", min=1, show_default=True),
-    ] = 1,
+    start_index: Annotated[int | None, WINDOW_START_INDEX_OPTION] = None,
+    end_index: Annotated[int | None, WINDOW_END_INDEX_OPTION] = None,
+    start_match: Annotated[str | None, WINDOW_START_MATCH_OPTION] = None,
+    end_match: Annotated[str | None, WINDOW_END_MATCH_OPTION] = None,
+    start_occurrence: Annotated[int, WINDOW_START_OCCURRENCE_OPTION] = 1,
+    end_occurrence: Annotated[int, WINDOW_END_OCCURRENCE_OPTION] = 1,
     strength: Annotated[
         float,
         typer.Option(help="Multiplier applied to the concept vector."),
     ] = 1.0,
-    apply_all_tokens: Annotated[
-        bool,
-        typer.Option(help="If set, injects into every token in the sequence."),
-    ] = False,
-    generated_only: Annotated[
-        bool,
-        typer.Option(help="Restrict injection to newly generated tokens."),
-    ] = False,
-    normalize: Annotated[
-        bool,
-        typer.Option(help="Normalize the vector to unit RMS before scaling.", show_default=True),
-    ] = True,
-    scale_by: Annotated[
-        float,
-        typer.Option(help="Extra multiplier applied after normalization.", show_default=True),
-    ] = 1.0,
+    apply_all_tokens: Annotated[bool, APPLY_ALL_TOKENS_OPTION] = False,
+    generated_only: Annotated[bool, GENERATED_ONLY_OPTION] = False,
+    normalize: Annotated[bool, NORMALIZE_OPTION] = True,
+    scale_by: Annotated[float, SCALE_BY_OPTION] = 1.0,
     max_new_tokens: Annotated[
         int,
         typer.Option(help="Number of new tokens to sample."),
@@ -351,7 +461,7 @@ def run(
 ) -> None:
     """Run the prompt with optional activation injection."""
 
-    window_spec = WindowSpec(
+    window_spec = _build_window_spec(
         start_index=start_index,
         end_index=end_index,
         start_match=start_match,
@@ -359,7 +469,6 @@ def run(
         start_occurrence=start_occurrence,
         end_occurrence=end_occurrence,
     )
-    window_spec.validate()
 
     if seed is not None:
         _seed_rng(seed)
@@ -367,7 +476,6 @@ def run(
     torch_dtype = resolve_dtype(dtype)
     torch_device = resolve_device(device)
     model, tokenizer = load_model_and_tokenizer(model_path, torch_dtype, torch_device)
-    sampling_model = cast(Any, model)
 
     inputs = tokenize(tokenizer, prompt, torch_device)
     prompt_length = inputs["input_ids"].shape[1]
@@ -382,25 +490,7 @@ def run(
     )
 
     if verbose:
-        span = schedule.resolved_span(prompt_length)
-        if span is None:
-            console.print(
-                f"[yellow]Resolved token span is empty for prompt length {prompt_length}. Check your flags."
-            )
-        else:
-            span_start, span_end = span
-            notes: list[str] = []
-            if schedule.has_window() and schedule.window_end == -1:
-                notes.append("end follows the latest token (open-ended)")
-            if schedule.generated_only:
-                gen_origin = (
-                    schedule.prompt_length if schedule.prompt_length is not None else prompt_length
-                )
-                notes.append(f"generated-only (>= index {gen_origin})")
-            note_suffix = f" [{' | '.join(notes)}]" if notes else ""
-            console.print(
-                f"[cyan]Resolved token span:[/cyan] {span_start}..{span_end}{note_suffix}"
-            )
+        _print_resolved_span(schedule, prompt_length)
 
     generation_config = _build_generation_config(
         tokenizer,
@@ -427,23 +517,17 @@ def run(
                 f"(model has {total_layers} layers)."
             )
 
-    disable_cache = vector_tensor is not None and schedule.requires_full_sequence()
-    if requires_cache_disabled(model):
-        disable_cache = True
-
-    ctx = (
-        injection_context(model, layer_index, vector_tensor, strength, schedule)
-        if vector_tensor is not None
-        else nullcontext()
+    text = _generate_text_with_schedule(
+        model=model,
+        tokenizer=tokenizer,
+        inputs=inputs,
+        generation_config=generation_config,
+        schedule=schedule,
+        vector=vector_tensor,
+        layer_index=layer_index,
+        strength=strength,
+        include_prompt=include_prompt,
     )
-
-    with torch.no_grad(), ctx:
-        output_ids = sampling_model.generate(
-            **inputs,
-            generation_config=generation_config,
-            use_cache=not disable_cache,
-        )
-    text = _decode_output(tokenizer, output_ids[0], include_prompt=include_prompt)
     console.print("=== Model Output ===")
     console.print(text)
 
@@ -470,48 +554,16 @@ def sweep(
         int | None,
         typer.Option(help="Token index for single-token injection (omit for default behavior)."),
     ] = None,
-    start_index: Annotated[
-        int | None,
-        typer.Option(help="Optional start index (inclusive) for windowed injection."),
-    ] = None,
-    end_index: Annotated[
-        int | None,
-        typer.Option(help="Optional end index (inclusive) for windowed injection."),
-    ] = None,
-    start_match: Annotated[
-        str | None,
-        typer.Option(
-            help="Substring anchor; injection begins on the newline preceding this match."
-        ),
-    ] = None,
-    end_match: Annotated[
-        str | None,
-        typer.Option(help="Substring anchor; injection ends on the newline following this match."),
-    ] = None,
-    start_occurrence: Annotated[
-        int,
-        typer.Option(help="1-based occurrence index for --start-match.", min=1, show_default=True),
-    ] = 1,
-    end_occurrence: Annotated[
-        int,
-        typer.Option(help="1-based occurrence index for --end-match.", min=1, show_default=True),
-    ] = 1,
-    apply_all_tokens: Annotated[
-        bool,
-        typer.Option(help="If set, injects into every token in the sequence."),
-    ] = False,
-    generated_only: Annotated[
-        bool,
-        typer.Option(help="Restrict injection to newly generated tokens."),
-    ] = False,
-    normalize: Annotated[
-        bool,
-        typer.Option(help="Normalize the vector to unit RMS before scaling.", show_default=True),
-    ] = True,
-    scale_by: Annotated[
-        float,
-        typer.Option(help="Extra multiplier applied after normalization.", show_default=True),
-    ] = 1.0,
+    start_index: Annotated[int | None, WINDOW_START_INDEX_OPTION] = None,
+    end_index: Annotated[int | None, WINDOW_END_INDEX_OPTION] = None,
+    start_match: Annotated[str | None, WINDOW_START_MATCH_OPTION] = None,
+    end_match: Annotated[str | None, WINDOW_END_MATCH_OPTION] = None,
+    start_occurrence: Annotated[int, WINDOW_START_OCCURRENCE_OPTION] = 1,
+    end_occurrence: Annotated[int, WINDOW_END_OCCURRENCE_OPTION] = 1,
+    apply_all_tokens: Annotated[bool, APPLY_ALL_TOKENS_OPTION] = False,
+    generated_only: Annotated[bool, GENERATED_ONLY_OPTION] = False,
+    normalize: Annotated[bool, NORMALIZE_OPTION] = True,
+    scale_by: Annotated[float, SCALE_BY_OPTION] = 1.0,
     diff_threshold: Annotated[
         int,
         typer.Option(help="Flag a row as changed when diff length exceeds this value."),
@@ -551,7 +603,7 @@ def sweep(
 ) -> None:
     """Sweep layer/strength combinations and log outputs to CSV."""
 
-    window_spec = WindowSpec(
+    window_spec = _build_window_spec(
         start_index=start_index,
         end_index=end_index,
         start_match=start_match,
@@ -559,7 +611,6 @@ def sweep(
         start_occurrence=start_occurrence,
         end_occurrence=end_occurrence,
     )
-    window_spec.validate()
 
     if seed is not None:
         _seed_rng(seed)
@@ -571,7 +622,6 @@ def sweep(
     torch_dtype = resolve_dtype(dtype)
     torch_device = resolve_device(device)
     model, tokenizer = load_model_and_tokenizer(model_path, torch_dtype, torch_device)
-    sampling_model = cast(Any, model)
 
     base_inputs = tokenize(tokenizer, prompt, torch_device)
     prompt_length = base_inputs["input_ids"].shape[1]
@@ -604,22 +654,18 @@ def sweep(
 
     def _generate_text(layer_idx: int | None, strength_value: float | None) -> str:
         cloned_inputs = clone_inputs(base_inputs)
-        disable_cache = strength_value is not None and schedule.requires_full_sequence()
-        if requires_cache_disabled(model):
-            disable_cache = True
-        ctx = (
-            injection_context(model, layer_idx, vector_tensor, strength_value, schedule)
-            if layer_idx is not None and strength_value is not None
-            else nullcontext()
+        vector_arg = vector_tensor if layer_idx is not None and strength_value is not None else None
+        return _generate_text_with_schedule(
+            model=model,
+            tokenizer=tokenizer,
+            inputs=cloned_inputs,
+            generation_config=generation_config,
+            schedule=schedule,
+            vector=vector_arg,
+            layer_index=layer_idx,
+            strength=strength_value,
+            include_prompt=include_prompt,
         )
-        with torch.no_grad(), ctx:
-            output_ids = sampling_model.generate(
-                **cloned_inputs,
-                generation_config=generation_config,
-                use_cache=not disable_cache,
-            )
-        decoded = _decode_output(tokenizer, output_ids[0], include_prompt=include_prompt)
-        return decoded
 
     baseline_text = _generate_text(layer_idx=None, strength_value=None)
 
