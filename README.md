@@ -134,6 +134,7 @@ uv run thought-injector inspect-vector vectors/aquariums_word_pharia.pt
 - Use `--generated_only` for minimal intrusion while debugging schedules.
 - To sanity-check window math, run with your `--start-match`/`--end-match` anchors (or explicit indices) plus `--strength 0.0`; the output should match the baseline exactly. Any divergence means the mask is off.
 - Prefer `--include-prompt` only when you explicitly need the prefixed text; otherwise skip special tokens for easier diffing.
+- Typer 0.12.x currently expects Click 8.1.x. Click 8.3.0 changed how boolean flags are detected and causes `Secondary flag is not valid for non-boolean flag.` crashes whenever you reuse `--normalize/--no-normalize`. If you accidentally upgrade Click, re-run `uv sync` to restore the pinned `click>=8.1,<8.2` range.
 - The hook finder assumes Llama-style decoder stacks (exposed as `model.layers` or `model.transformer.h`). Extending `_get_decoder_layers` is enough to support new architectures.
 - Set `TI_DEBUG_STRICT=1` (or any truthy value) to assert that the hooked residual stream tensors stay shape `[batch, tokens, hidden]` and that the hidden width matches your concept vector before every injection.
 - Keep a copy of at least one successful injection transcript (e.g., `injection_output.txt`) so you can confirm future code changes still recreate the same “aquariums” bias without retuning hyperparameters.
@@ -152,6 +153,7 @@ Helper code now lives in focused modules under `thought_injector/` so `cli.py` o
 CLI wiring details worth reusing when you add commands:
 
 - Shared Typer option singletons (e.g., the window/span flags, normalization toggles, etc.) now live at the top of `cli.py` so help text and defaults stay in sync between `run`, `sweep`, and future commands—import/reuse them instead of re-declaring new `typer.Option` objects.
+- When you reuse those option singletons via `typing.Annotated`, call `typer.Option(..., "--flag")` with `...` as the first argument and set the real default on the parameter itself. Supplying a concrete default inside the shared Option makes Typer treat it as another flag label and you’ll hit `NoneType.has no attribute isidentifier` during CLI bootstrap.
 - `_build_window_spec(...)` centralizes validation for the textual/indexed span flags, while `_generate_text_with_schedule(...)` owns the “hook + cache toggle + decode” workflow. Calling those helpers keeps verbose span reporting, cache rules, and injection contexts consistent across every CLI entry point.
 
 Two helpers worth calling out when extending the CLI or writing new tooling:

@@ -1,3 +1,9 @@
+# 2025-11-13 - CLI rehab & README replay
+
+- `thought-injector run`/`sweep` were throwing `AttributeError: 'NoneType' object has no attribute 'isidentifier'` and `Secondary flag is not valid for non-boolean flag.` as soon as Typer tried to build the commands on Typer 0.12.5 + Click 8.3.0. Fixed the CLI by (a) removing positional defaults from the shared `typer.Option` metadata when used via `Annotated[...]`, and (b) pinning Click to the 8.1.x series where Typer’s boolean-flag assumptions still hold.
+- Re-synced the virtualenv (`uv sync`) so the repo now installs `typer==0.12.5` and `click==8.1.8`. Documented the constraint + `typer.Option` gotcha in README.md and AGENTS.md for future agents.
+- Replayed the README flow end-to-end on `models/pharia-1-control`: recaptured `vectors/aquariums_word_pharia.pt`, ran the neutral baseline (`baseline_output.txt`), and confirmed the injected trial (`injection_output.txt`) still shouts “You have aquariums. Aquariums are where they keep their tanks.” at Trial 1 with `--strength 0.8` + `--start-match "Trial 1:"`.
+
 # 2025-11-12 - phi-4-mini
 
 - Ran the README experiment with `models/phi-4-mini-instruct` using `uv run thought-injector capture/run` on CUDA. Captured a concept vector at `vectors/aquarium_phi4mini_cli_fix.pt` from the positive prompt "Tell me about aquariums." minus the negative prompt "Tell me about deserts." (layer 20, token -1).

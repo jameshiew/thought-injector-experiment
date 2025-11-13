@@ -87,46 +87,46 @@ SWEEP_STRENGTH_OPTION = typer.Option(
     help="One or more strengths to evaluate (repeat flag).",
 )
 WINDOW_START_INDEX_OPTION = typer.Option(
-    None,
+    ...,
     "--start-index",
     help="Optional start index (inclusive) for windowed injection.",
 )
 WINDOW_END_INDEX_OPTION = typer.Option(
-    None,
+    ...,
     "--end-index",
     help="Optional end index (inclusive) for windowed injection.",
 )
 WINDOW_START_MATCH_OPTION = typer.Option(
-    None,
+    ...,
     "--start-match",
     help="Substring anchor; injection begins on the newline preceding this match.",
 )
 WINDOW_END_MATCH_OPTION = typer.Option(
-    None,
+    ...,
     "--end-match",
     help="Substring anchor; injection ends on the newline following this match.",
 )
 WINDOW_START_OCCURRENCE_OPTION = typer.Option(
-    1,
+    ...,
     "--start-occurrence",
     help="1-based occurrence index for --start-match.",
     min=1,
     show_default=True,
 )
 WINDOW_END_OCCURRENCE_OPTION = typer.Option(
-    1,
+    ...,
     "--end-occurrence",
     help="1-based occurrence index for --end-match.",
     min=1,
     show_default=True,
 )
 APPLY_ALL_TOKENS_OPTION = typer.Option(
-    False,
+    ...,
     "--apply-all-tokens",
     help="If set, injects into every token in the sequence.",
 )
 GENERATED_ONLY_OPTION = typer.Option(
-    False,
+    ...,
     "--generated-only",
     help="Restrict injection to newly generated tokens.",
 )
@@ -137,7 +137,7 @@ NORMALIZE_OPTION = typer.Option(
     show_default=True,
 )
 SCALE_BY_OPTION = typer.Option(
-    1.0,
+    ...,
     "--scale-by",
     help="Extra multiplier applied after normalization.",
     show_default=True,
@@ -422,7 +422,7 @@ def run(
     ] = 1.0,
     apply_all_tokens: Annotated[bool, APPLY_ALL_TOKENS_OPTION] = False,
     generated_only: Annotated[bool, GENERATED_ONLY_OPTION] = False,
-    normalize: Annotated[bool, NORMALIZE_OPTION] = True,
+    normalize: bool = NORMALIZE_OPTION,
     scale_by: Annotated[float, SCALE_BY_OPTION] = 1.0,
     max_new_tokens: Annotated[
         int,
@@ -562,7 +562,7 @@ def sweep(
     end_occurrence: Annotated[int, WINDOW_END_OCCURRENCE_OPTION] = 1,
     apply_all_tokens: Annotated[bool, APPLY_ALL_TOKENS_OPTION] = False,
     generated_only: Annotated[bool, GENERATED_ONLY_OPTION] = False,
-    normalize: Annotated[bool, NORMALIZE_OPTION] = True,
+    normalize: bool = NORMALIZE_OPTION,
     scale_by: Annotated[float, SCALE_BY_OPTION] = 1.0,
     diff_threshold: Annotated[
         int,

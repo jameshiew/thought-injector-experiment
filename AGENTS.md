@@ -20,3 +20,5 @@
 - `just lint` is the gatekeeper; run it first and follow with `just test` before `just fmt` whenever you want the full CI bundle.
 - Set `TI_DEBUG_STRICT=1` if you need the hook to assert residual tensors are `[batch, tokens, hidden]` with the expected width during debugging.
 - `cli.py` now exposes reusable Typer option singletons plus `_build_window_spec(...)` and `_generate_text_with_schedule(...)`; lean on those helpers when adding commands so window math, cache toggles, and verbose span reporting stay consistent.
+- When you reuse those Typer option singletons inside `Annotated[...]` parameters, keep the first positional argument as `...` and assign the real default (`= False`, `= None`, etc.) on the parameter. Passing the default directly to `typer.Option` sneaks an extra `None` into the flag declarations and Typer/Click will crash before the CLI even renders.
+- Keep Click pinned to 8.1.x for now. Click 8.3.0’s stricter boolean flag detection fights with Typer 0.12’s `--foo/--no-foo` syntax and raises `Secondary flag is not valid for non-boolean flag.` during CLI startup.
