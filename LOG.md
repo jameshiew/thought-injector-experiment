@@ -22,7 +22,7 @@
 
 - `thought-injector run`/`sweep` were throwing `AttributeError: 'NoneType' object has no attribute 'isidentifier'` and `Secondary flag is not valid for non-boolean flag.` as soon as Typer tried to build the commands on Typer 0.12.5 + Click 8.3.0. Fixed the CLI by (a) removing positional defaults from the shared `typer.Option` metadata when used via `Annotated[...]`, and (b) pinning Click to the 8.1.x series where Typer’s boolean-flag assumptions still hold.
 - Re-synced the virtualenv (`uv sync`) so the repo now installs `typer==0.12.5` and `click==8.1.8`. Documented the constraint + `typer.Option` gotcha in README.md and AGENTS.md for future agents.
-- Replayed the README flow end-to-end on `models/pharia-1-control`: recaptured `vectors/aquariums_word_pharia.safetensors`, ran the neutral baseline (`baseline_output.txt`), and confirmed the injected trial (`injection_output.txt`) still shouts “You have aquariums. Aquariums are where they keep their tanks.” at Trial 1 with `--strength 0.8` + `--start-match "Trial 1:"`.
+- Replayed the README flow end-to-end on `models/pharia-1-control`: recaptured `vectors/aquariums_word_pharia.safetensors`, ran the neutral baseline (archived as `experiments/readme_windowed/baseline_layer20_window.txt`), and confirmed the injected trial (`experiments/readme_windowed/injection_aquariums_layer20_strength0p8.txt`) still shouts “You have aquariums. Aquariums are where they keep their tanks.” at Trial 1 with `--strength 0.8` + `--start-match "Trial 1:"`.
 
 # 2025-11-12 - phi-4-mini
 
@@ -47,5 +47,5 @@
 
 - Used the new `capture-word` subcommand to record `vectors/aquariums_word_pharia.safetensors`, `vectors/deserts_word_pharia.safetensors`, and `vectors/forests_word_pharia.safetensors` at layer 20, token -1 with the 100-word default baseline list. Vector RMS values land in the 0.18–0.30 range, and `inspect-vector` shows the prompts + metadata we expect.
 - Confirmed the Typer option fix (module-level singletons) so `just lint` stays clean while supporting repeated `--layer-index/--strength` flags in the sweep harness.
-- Baseline sanity run (strength 0.0, `--start-match "Trial 1:"`, `--vector-path vectors/aquariums_word_pharia.safetensors`) produced the neutral “Trial countdown with apple/banana/tree answers” transcript stored in `baseline_output.txt`.
-- Re-running with `--strength 0.8` (same prompt/vector/layer, auto bf16) yielded an immediate “You have aquariums. Aquariums are where they keep their tanks.” response on Trial 1, demonstrating a clean injection-driven behavior change without collapse. Transcript saved as `injection_output.txt` for future diffing.
+- Baseline sanity run (strength 0.0, `--start-match "Trial 1:"`, `--vector-path vectors/aquariums_word_pharia.safetensors`) produced the neutral “Trial countdown with apple/banana/tree answers” transcript saved as `experiments/readme_windowed/baseline_layer20_window.txt`.
+- Re-running with `--strength 0.8` (same prompt/vector/layer, auto bf16) yielded an immediate “You have aquariums. Aquariums are where they keep their tanks.” response on Trial 1, demonstrating a clean injection-driven behavior change without collapse. Transcript saved as `experiments/readme_windowed/injection_aquariums_layer20_strength0p8.txt` for future diffing.

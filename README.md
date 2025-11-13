@@ -134,7 +134,7 @@ uv run thought-injector run \
 
 ### Demonstrated behavior shift
 
-On 2025-11-12 we captured `vectors/aquariums_word_pharia.safetensors` via `capture-word` and ran the two commands above (with `--strength 0.0` for the baseline, `--strength 0.8` for the injected case). The baseline transcript remained neutral, but the injected run immediately pivoted to “You have aquariums. Aquariums are where they keep their tanks.” when Trial 1 began. That transcript lives in `injection_output.txt` inside the repo if you want to diff it later. Repeating the process with fresh seeds reliably reproduces the same “aquariums” bias, so this is now our canonical sanity check that the hook + windowing stack is working.
+On 2025-11-12 we captured `vectors/aquariums_word_pharia.safetensors` via `capture-word` and ran the two commands above (with `--strength 0.0` for the baseline, `--strength 0.8` for the injected case). The baseline transcript remained neutral, but the injected run immediately pivoted to “You have aquariums. Aquariums are where they keep their tanks.” when Trial 1 began. Both transcripts are archived under `experiments/readme_windowed/` (see `baseline_layer20_window.txt` and `injection_aquariums_layer20_strength0p8.txt`) if you want to diff them later. Repeating the process with fresh seeds reliably reproduces the same “aquariums” bias, so this is now our canonical sanity check that the hook + windowing stack is working.
 Windowed replays from 2025-11-13 (baseline + injected) live under `experiments/readme_windowed/` and use the new `--end-match "Trial 2:"` guard so only the first trial is steered.
 
 Both commands above window the injection schedule from the start of “Trial 1:” up to (but not including) “Trial 2:”, so only the Trial 1 answer is influenced. When the `--end-match` text is absent from the raw prompt, the CLI streams the generated text until it encounters the substring (or emits a warning if it never does) and only injects during that first span.
@@ -214,7 +214,7 @@ uv run thought-injector inspect-vector vectors/aquariums_word_pharia.safetensors
 - Transformers 4.57.1 currently requires `huggingface-hub<1.0`, so we pin the client to the newest sub-1.0 release (`huggingface-hub>=0.36.0,<1.0`). If you yank that constraint you’ll get resolver failures until Transformers 5.0 lifts the cap.
 - The hook finder assumes Llama-style decoder stacks (exposed as `model.layers` or `model.transformer.h`). Extending `_get_decoder_layers` is enough to support new architectures.
 - Set `TI_DEBUG_STRICT=1` (or any truthy value) to assert that the hooked residual stream tensors stay shape `[batch, tokens, hidden]` and that the hidden width matches your concept vector before every injection; the check runs inside `apply_injection` immediately after the `InjectionSchedule` mask resolves, so any dtype/shape mixups are caught before activations are modified.
-- Keep a copy of at least one successful injection transcript (e.g., `injection_output.txt`) so you can confirm future code changes still recreate the same “aquariums” bias without retuning hyperparameters.
+- Keep a copy of at least one successful injection transcript (for example, stash them under `experiments/readme_windowed/`) so you can confirm future code changes still recreate the same “aquariums” bias without retuning hyperparameters.
 
 ## Development
 
