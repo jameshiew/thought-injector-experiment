@@ -96,6 +96,7 @@ Key switches:
 
 - `--start-match` / `--end-match` find the newline before/after your anchor string (even for the Nth occurrence via `--start-occurrence` / `--end-occurrence`) so you can window Trial-by-Trial sections without counting tokens. Supplying just `--start-match` keeps the window open through the last generated token; add `--end-match` to clamp the span earlier or fall back to `--start_index/--end_index` for raw token math.
 - Raw `--start-index` / `--end-index` inputs ride through the same resolver as the textual anchors. Provide only a start index and the helper automatically treats the end as “latest token” (internally `-1`), so anchor- and index-based windows stay in lockstep.
+- Mix-and-match guardrail: `--start-index` conflicts with `--start-match` (and likewise for the end flags). Pick one style per boundary so the resolver never has to guess which anchor to respect.
 - `--verbose` prints the resolved token span before sampling so you can sanity-check your anchors (pair it with `--strength 0.0` to confirm the mask is inert).
 - `--generated_only` restricts the injection to tokens beyond the prompt. If you omit `--token-index` (and don’t set a window), the entire generated suffix is steered; pass `--token-index -1` to focus on only the newest token. Keep `--apply-all-tokens` for whole-sequence steering.
 - `--normalize/--scale-by` default to unit RMS + `scale-by=1.0`, which keeps strengths in a friendly `0.3–1.2` range. Set `--no-normalize` if you want raw vector magnitudes.
@@ -133,6 +134,7 @@ uv run thought-injector inspect-vector vectors/aquariums_word_pharia.pt
 ## Troubleshooting & guardrails
 
 - If you see repetition or ellipsis walls, drop the strength, move to a later layer, or keep `--normalize` enabled and reduce `--scale-by`.
+- `layer-index` is strictly 0-based across `capture`, `capture-word`, `run`, and `sweep`; negative values no longer wrap around, so pass the exact decoder block you intend to probe.
 - Use `--generated_only` for minimal intrusion while debugging schedules.
 - To sanity-check window math, run with your `--start-match`/`--end-match` anchors (or explicit indices) plus `--strength 0.0`; the output should match the baseline exactly. Any divergence means the mask is off.
 - Prefer `--include-prompt` only when you explicitly need the prefixed text; otherwise skip special tokens for easier diffing.

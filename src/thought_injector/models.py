@@ -48,7 +48,7 @@ class HiddenStateOutput(Protocol):
 
 
 def gpu_supports_bfloat16() -> bool:
-    """Return True when the active CUDA device can execute bfloat16 kernels."""
+    """Return True when CUDA reports bf16 support or when compute capability >= 8.0."""
     if not torch.cuda.is_available():
         return False
 
@@ -58,17 +58,23 @@ def gpu_supports_bfloat16() -> bool:
             if is_bf16_supported():
                 return True
         except RuntimeError:
+            console.print(
+                "[yellow]Info:[/yellow] torch.cuda.is_bf16_supported() probe failed; assuming no bf16."
+            )
             return False
 
     try:
         capability: tuple[int, int] = torch.cuda.get_device_capability()
     except RuntimeError:
+        console.print(
+            "[yellow]Info:[/yellow] Unable to read CUDA capability; assuming no bf16 support."
+        )
         return False
     return capability[0] >= 8
 
 
 def resolve_dtype(name: str) -> torch.dtype:
-    """Translate CLI dtype names, preferring bf16 on GPUs when 'auto' is used."""
+    """Translate CLI dtype names, preferring bf16 on CUDA SM>=8 GPUs when 'auto' is used."""
     if name == "auto":
         name = "bfloat16" if gpu_supports_bfloat16() else "float16"
         console.print(f"Auto-selecting torch dtype '{name}'.")
@@ -76,7 +82,7 @@ def resolve_dtype(name: str) -> torch.dtype:
         return DTYPE_MAP[name]
     except KeyError as exc:  # pragma: no cover - defensive.
         raise typer.BadParameter(
-            f"Unsupported dtype '{name}'. Choose from {list(DTYPE_MAP)}"
+            f"Unsupported dtype '{name}'. Choose from {sorted(DTYPE_MAP)}"
         ) from exc
 
 
@@ -142,7 +148,8 @@ def get_decoder_layers(model: PreTrainedModel) -> LayerSequence:
         "Could not locate decoder layers on "
         f"{type(model)!r}; searched attributes {candidates}. "
         "Available attributes include: "
-        f"{dir(model)}. This implementation currently supports Llama-style models."
+        f"{dir(model)}. Only Llama-style decoder stacks are supported today; extend "
+        "_maybe_layers if your architecture stores layers under a different attribute."
     )
 
 
@@ -158,7 +165,7 @@ def resolve_layer(model: PreTrainedModel, layer_index: int) -> nn.Module:
 def tokenize(
     tokenizer: PreTrainedTokenizerBase, prompt: str, device: torch.device
 ) -> dict[str, torch.Tensor]:
-    """Tokenize a prompt, dropping token_type_ids but preserving attention masks."""
+    """Tokenize a prompt, dropping token_type_ids but keeping attention masks even when all ones."""
     encoded: BatchEncoding = tokenizer(prompt, return_tensors="pt")
     encoded_data = cast(dict[str, torch.Tensor], encoded.data)
     tensors: dict[str, torch.Tensor] = dict(encoded_data)
@@ -183,6 +190,7 @@ def extract_hidden_state(
     token_index: int,
     device: torch.device,
 ) -> torch.Tensor:
+    """Return the batch-mean hidden state for a specific 0-based decoder block (not embeddings)."""
     inputs = tokenize(tokenizer, prompt, device)
     with torch.no_grad():
         outputs = cast(
@@ -196,10 +204,9 @@ def extract_hidden_state(
         )
     config_layers = getattr(getattr(model, "config", object()), "num_hidden_layers", None)
     num_layers = int(config_layers) if config_layers is not None else len(get_decoder_layers(model))
-    if layer_index >= num_layers:
-        raise typer.BadParameter(
-            f"layer-index {layer_index} exceeds available layers ({num_layers})."
-        )
+    max_index = num_layers - 1
+    if layer_index < 0 or layer_index > max_index:
+        raise typer.BadParameter(f"layer-index must be in [0, {max_index}] but got {layer_index}")
     layer_hidden = hidden_states[layer_index + 1]
     resolved_index = resolve_token_index(token_index, layer_hidden.shape[1])
     return layer_hidden[:, resolved_index, :].mean(dim=0).detach().cpu()

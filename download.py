@@ -95,6 +95,7 @@ def sha256sum(path: Path) -> str:
 
 
 def resolve_specs(repo_key: str, token: str | None) -> tuple[FileSpec, ...]:
+    """Return the list of FileSpec entries for a repo, fetching Hugging Face metadata if needed."""
     config: StaticSpec = STATIC_SPECS[repo_key]
     files = config["files"]
     if files is not None:
@@ -106,7 +107,8 @@ def resolve_specs(repo_key: str, token: str | None) -> tuple[FileSpec, ...]:
     except HfHubHTTPError as err:
         if err.response is not None and err.response.status_code in (401, 403):
             raise SystemExit(
-                "This repository is gated. Set HF_TOKEN or pass --token to authenticate."
+                f"Repository {config['repo_id']} requires authentication. "
+                "Set HF_TOKEN or pass --token to authenticate."
             ) from err
         raise
 
@@ -123,11 +125,15 @@ def resolve_specs(repo_key: str, token: str | None) -> tuple[FileSpec, ...]:
         sha = sibling.lfs.sha256 if sibling.lfs else None
         specs.append(FileSpec(sibling.rfilename, sha))
     if not specs:
-        raise SystemExit(f"No downloadable files found for {config['repo_id']}.")
+        suffixes = ", ".join(SUFFIX_ALLOWLIST)
+        raise SystemExit(
+            f"No downloadable files with suffixes ({suffixes}) found for {config['repo_id']}."
+        )
     return tuple(specs)
 
 
 def download_file(repo_id: str, filename: str, dest: Path, token: str | None) -> None:
+    """Stream a single file from Hugging Face and atomically move it into place."""
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = dest.with_suffix(dest.suffix + ".partial")
     url = f"https://huggingface.co/{repo_id}/resolve/main/{filename}?download=1"
@@ -171,6 +177,7 @@ def download_file(repo_id: str, filename: str, dest: Path, token: str | None) ->
 def ensure_file(
     repo_id: str, spec: FileSpec, target_dir: Path, force: bool, token: str | None
 ) -> None:
+    """Skip downloads when possible, otherwise fetch and optionally verify SHA256."""
     dest = target_dir / spec.name
     if dest.exists() and not force:
         if spec.sha256:

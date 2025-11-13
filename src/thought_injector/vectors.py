@@ -14,7 +14,7 @@ from thought_injector.app import console
 
 
 class VectorMetadata(BaseModel):
-    """Structured metadata stored alongside vector tensors."""
+    """Structured metadata saved via Pydantic when vectors are serialized with torch.save."""
 
     model_config = ConfigDict(extra="allow")
 
@@ -28,7 +28,7 @@ class VectorMetadata(BaseModel):
 
 
 class VectorPayload(BaseModel):
-    """Serialized payload saved to disk via torch.save."""
+    """Wrapper combining tensor data and VectorMetadata for torch.save persistence."""
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -75,6 +75,8 @@ def save_vector(
 
 
 def load_vector(path: Path) -> VectorRecord:
+    if not path.exists():
+        raise typer.BadParameter(f"Vector file {path} not found.")
     payload = torch.load(path, map_location="cpu")
     try:
         validated = VectorPayload.model_validate(payload)
@@ -99,13 +101,14 @@ def load_prepared_vector(
 
 
 def broadcast_vector(vector: torch.Tensor, hidden_states: torch.Tensor) -> torch.Tensor:
+    """Return the vector on the same dtype/device as hidden_states without changing shape."""
     return vector.to(dtype=hidden_states.dtype, device=hidden_states.device)
 
 
 def normalize_vector(vector: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
     rms = torch.sqrt(torch.mean(vector.to(torch.float32) ** 2))
     if torch.isnan(rms) or rms.item() < eps:
-        raise typer.BadParameter("Vector has near-zero RMS; cannot normalize.")
+        raise typer.BadParameter(f"Vector has near-zero RMS ({rms.item():.3e}); cannot normalize.")
     return vector / rms
 
 
@@ -119,6 +122,7 @@ def prepare_vector(vector: torch.Tensor, normalize: bool, scale_by: float) -> to
 
 
 def ensure_vector_matches_model(vector: torch.Tensor, model: PreTrainedModel) -> None:
+    """Ensure a vector is 1-D with length model.config.hidden_size before injection."""
     hidden_size = model.config.hidden_size
     if vector.ndim != 1:
         raise typer.BadParameter(

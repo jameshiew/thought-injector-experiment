@@ -6,6 +6,7 @@ import typer
 from thought_injector import spans
 from thought_injector.text_utils import (
     WindowSpec,
+    diff_length,
     resolve_end_match_token_index,
     resolve_start_match_token_index,
     token_index_from_char,
@@ -74,6 +75,27 @@ class LineTokenizer:
         return FakeEncoding(data)
 
 
+class SpecialTokenizer:
+    """Tokenizer that adds BOS/EOS tokens whenever add_special_tokens=True."""
+
+    def __init__(self) -> None:
+        self.special_flags: list[bool] = []
+
+    def __call__(
+        self,
+        prompt: str,
+        add_special_tokens: bool = True,
+        return_offsets_mapping: bool = False,
+    ) -> FakeEncoding:
+        self.special_flags.append(add_special_tokens)
+        tokens = list(range(len(prompt)))
+        if add_special_tokens:
+            tokens = [101, *tokens, 102]
+        data: dict[str, object] = {"input_ids": [tokens]}
+        # Intentionally omit offset_mapping so token_index_from_char triggers fallback.
+        return FakeEncoding(data)
+
+
 PROMPT = """System prompt\nTrial 1:\nAssistant: turn 1\nTrial 2:\nAssistant: turn 2\n"""
 
 
@@ -127,6 +149,14 @@ def test_token_index_from_char_handles_end_anchor_with_zero_width_offsets() -> N
     anchor = len(prompt)
     index = token_index_from_char(tokenizer, prompt, anchor)
     assert index == len(prompt) + 1  # last printable token index (with two zero-width tokens)
+
+
+def test_token_index_from_char_fallback_ignores_special_tokens() -> None:
+    prompt = "abcd"
+    tokenizer = SpecialTokenizer()
+    index = token_index_from_char(tokenizer, prompt, len(prompt) - 1)
+    assert index == len(prompt) - 1
+    assert tokenizer.special_flags[-1] is False
 
 
 def test_match_resolution_handles_multi_char_tokens() -> None:
@@ -206,3 +236,24 @@ def test_window_spec_build_schedule_resolves_window_and_prompt_length() -> None:
     assert schedule.window_start == expected_start
     assert schedule.window_end == expected_end
     assert schedule.prompt_length == prompt_length
+
+
+def test_window_spec_rejects_start_index_and_match_combo() -> None:
+    tokenizer = CharTokenizer()
+    spec = WindowSpec(start_index=1, start_match="Trial")
+    with pytest.raises(typer.BadParameter, match="mutually exclusive"):
+        spec.validate()
+
+
+def test_window_spec_rejects_end_index_and_match_combo() -> None:
+    spec = WindowSpec(end_index=1, end_match="Trial")
+    with pytest.raises(typer.BadParameter, match="mutually exclusive"):
+        spec.validate()
+
+
+def test_diff_length_is_symmetric_for_known_strings() -> None:
+    a = "hello world"
+    b = "hallo wurld!"
+    forward = diff_length(a, b)
+    backward = diff_length(b, a)
+    assert forward == backward == 5

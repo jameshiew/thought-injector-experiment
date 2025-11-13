@@ -32,18 +32,19 @@ class LastHiddenStateOutput(Protocol):
     last_hidden_state: torch.Tensor | None
 
 
-OutputLike = LastHiddenStateOutput | torch.Tensor | tuple[torch.Tensor, ...]
+OutputLike = (
+    LastHiddenStateOutput | torch.Tensor | tuple[torch.Tensor, ...] | MutableMapping[str, Any]
+)
 
 
 class InjectionSchedule(BaseModel):
     """Describe how injections target tokens.
 
-    `window_start` and `window_end` are token indices (inclusive). Leaving
-    `window_end=None` or `window_end==-1` keeps the window open through the
-    final position. `generated_only` masks off the prompt prefix using
-    `prompt_length`, while `single_index` lets callers focus a single token.
-    When `generated_only` is enabled without any explicit indices, injections
-    begin at the first generated token (>= `prompt_length`).
+    Priority order is apply_all -> explicit window -> single_index -> default last token.
+    `window_start` / `window_end` are inclusive token indices, with `window_end=-1` treated
+    as “open” until the final token. `generated_only` masks out prompt tokens using
+    `prompt_length`, ensuring injections only touch tokens beyond the prompt regardless of
+    the targeting mode.
     """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -92,6 +93,11 @@ class InjectionSchedule(BaseModel):
         """Build a boolean mask highlighting the targeted token positions."""
         if seq_len <= 0:
             return torch.zeros(0, dtype=torch.bool, device=device)
+        if self.generated_only:
+            if self.prompt_length is None:
+                raise typer.BadParameter("--generated-only requires a known prompt token length.")
+            if self.prompt_length >= seq_len:
+                return torch.zeros(seq_len, dtype=torch.bool, device=device)
         mask = torch.zeros(seq_len, dtype=torch.bool, device=device)
         has_window = self.has_window()
         effective_apply_all = self._effective_apply_all()
@@ -109,8 +115,7 @@ class InjectionSchedule(BaseModel):
             mask[idx] = True
 
         if self.generated_only:
-            if self.prompt_length is None:
-                raise typer.BadParameter("--generated-only requires a known prompt token length.")
+            assert self.prompt_length is not None
             gen_start = min(self.prompt_length, seq_len)
             gen_mask = torch.zeros_like(mask)
             if gen_start < seq_len:
@@ -119,7 +124,7 @@ class InjectionSchedule(BaseModel):
         return mask
 
     def resolved_span(self, seq_len: int) -> tuple[int, int] | None:
-        """Return the inclusive index span that will be modified, if any."""
+        """Return the inclusive token span that will be modified, or None if the mask is empty."""
         if seq_len <= 0:
             return None
 
@@ -158,6 +163,10 @@ def apply_injection(
     strength: float,
     schedule: InjectionSchedule,
 ) -> torch.Tensor:
+    """Clone hidden_states, add the scaled vector where the mask is True, and return the result.
+
+    Expects hidden_states shaped [B, T, H]; TI_DEBUG_STRICT enforces this invariant.
+    """
     if TI_DEBUG_STRICT:
         _assert_residual_shape(hidden_states, vector)
     mask = schedule.resolve_mask(hidden_states.shape[1], hidden_states.device)
@@ -172,19 +181,26 @@ def apply_injection(
 def _assert_residual_shape(hidden_states: torch.Tensor, vector: torch.Tensor) -> None:
     if hidden_states.ndim != 3:
         raise RuntimeError(
-            "TI_DEBUG_STRICT=1: expected residual stream tensor with shape [B, T, H]."
+            "TI_DEBUG_STRICT=1: expected residual stream tensor with shape [B, T, H]; "
+            f"got {tuple(hidden_states.shape)}."
         )
     if vector.ndim == 0:
-        raise RuntimeError("TI_DEBUG_STRICT=1: vector must have at least one dimension.")
+        raise RuntimeError(
+            f"TI_DEBUG_STRICT=1: vector must have at least one dimension; got {tuple(vector.shape)}."
+        )
     expected_width = vector.shape[-1]
     if hidden_states.shape[-1] != expected_width:
-        raise RuntimeError("TI_DEBUG_STRICT=1: hidden state width does not match vector length.")
+        raise RuntimeError(
+            "TI_DEBUG_STRICT=1: hidden state width "
+            f"{hidden_states.shape[-1]} does not match vector length {expected_width}."
+        )
 
 
 def _remix_output(
     output: OutputLike,
     mutate_fn: Callable[[torch.Tensor], torch.Tensor],
 ) -> OutputLike:
+    """Apply mutate_fn to the hidden-state-bearing portion of common HF outputs."""
     if isinstance(output, torch.Tensor):
         return mutate_fn(output)
     if isinstance(output, tuple):
@@ -192,7 +208,7 @@ def _remix_output(
         return (mutated, *output[1:])
     hidden = getattr(output, "last_hidden_state", None)
     if hidden is not None:
-        output.last_hidden_state = mutate_fn(hidden)
+        cast(Any, output).last_hidden_state = mutate_fn(hidden)
         return output  # pragma: no cover
     hidden_states_attr = getattr(output, "hidden_states", None)
     if isinstance(hidden_states_attr, tuple):
@@ -205,22 +221,29 @@ def _remix_output(
         cast(Any, output).hidden_states = mutate_fn(hidden_states_attr)
         return output  # pragma: no cover
     if isinstance(output, dict):
-        mapping = cast(MutableMapping[str, Any], output)
-        if "last_hidden_state" in mapping:
-            lhs_value = mapping["last_hidden_state"]
-            if isinstance(lhs_value, torch.Tensor):
-                mapping["last_hidden_state"] = mutate_fn(lhs_value)
-                return output
-        if "hidden_states" not in mapping:
-            return output
-        hs_value = mapping["hidden_states"]
-        if isinstance(hs_value, tuple) and hs_value:
-            hs_tuple = cast(tuple[torch.Tensor, ...], hs_value)
-            mapping["hidden_states"] = (mutate_fn(hs_tuple[0]), *hs_tuple[1:])
-        elif isinstance(hs_value, torch.Tensor):
-            mapping["hidden_states"] = mutate_fn(hs_value)
-        return output
+        return _remix_output_dict(cast(MutableMapping[str, Any], output), mutate_fn)
     return output
+
+
+def _remix_output_dict(
+    mapping: MutableMapping[str, Any],
+    mutate_fn: Callable[[torch.Tensor], torch.Tensor],
+) -> MutableMapping[str, Any]:
+    """Helper for _remix_output: mutate dict-based HF outputs in-place."""
+    if "last_hidden_state" in mapping:
+        lhs_value = mapping["last_hidden_state"]
+        if isinstance(lhs_value, torch.Tensor):
+            mapping["last_hidden_state"] = mutate_fn(lhs_value)
+            return mapping
+    hs_value = mapping.get("hidden_states")
+    if hs_value is None:
+        return mapping
+    if isinstance(hs_value, tuple) and hs_value:
+        hs_tuple = cast(tuple[torch.Tensor, ...], hs_value)
+        mapping["hidden_states"] = (mutate_fn(hs_tuple[0]), *hs_tuple[1:])
+    elif isinstance(hs_value, torch.Tensor):
+        mapping["hidden_states"] = mutate_fn(hs_value)
+    return mapping
 
 
 def register_injection(

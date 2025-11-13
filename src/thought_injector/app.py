@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+"""Application wiring for the thought-injector Typer CLI."""
+
 from collections.abc import Callable
 from typing import Any, TypeVar
 
@@ -7,7 +9,10 @@ import typer
 from rich.console import Console
 
 console = Console()
-app = typer.Typer(help="Local concept-injection experiments for safetensors-based LMs.")
+app = typer.Typer(
+    help="Local concept-injection experiments for safetensors-based LMs.",
+    no_args_is_help=True,
+)
 
 FuncT = TypeVar("FuncT", bound=Callable[..., Any])
 

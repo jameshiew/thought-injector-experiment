@@ -43,6 +43,7 @@ DecodeFn = Callable[..., str]
 
 
 def _seed_rng(seed: int) -> None:
+    """Seed torch's RNG so CLI commands remain reproducible."""
     seed_fn = cast(ManualSeedFn, torch.manual_seed)
     seed_fn(seed)
 
@@ -53,6 +54,7 @@ def _decode_output(
     *,
     include_prompt: bool,
 ) -> str:
+    """Decode a tensor of token ids back into readable text."""
     decode_fn = cast(DecodeFn, tokenizer.decode)
     return decode_fn(token_ids, skip_special_tokens=not include_prompt)
 
@@ -64,11 +66,12 @@ def _build_generation_config(
     temperature: float,
     top_p: float,
 ) -> GenerationConfig:
+    """Translate CLI sampling flags into a GenerationConfig."""
     pad_token_id = cast(int | None, getattr(tokenizer, "pad_token_id", None))
     eos_token_id = cast(int | None, getattr(tokenizer, "eos_token_id", None))
     return GenerationConfig(
         max_new_tokens=max_new_tokens,
-        temperature=max(temperature, 1e-8),
+        temperature=max(temperature, 1e-8),  # Clamp to avoid HF zero-temp errors.
         top_p=top_p,
         do_sample=temperature > 0,
         pad_token_id=pad_token_id,
@@ -77,12 +80,12 @@ def _build_generation_config(
 
 
 SWEEP_LAYER_OPTION = typer.Option(
-    None,
+    ...,
     "--layer-index",
     help="One or more layers to evaluate (repeat flag).",
 )
 SWEEP_STRENGTH_OPTION = typer.Option(
-    None,
+    ...,
     "--strength",
     help="One or more strengths to evaluate (repeat flag).",
 )
@@ -155,6 +158,7 @@ def _build_window_spec(
     start_occurrence: int,
     end_occurrence: int,
 ) -> WindowSpec:
+    """Validate the mutual exclusivity rules for window-related CLI flags."""
     spec = WindowSpec(
         start_index=start_index,
         end_index=end_index,
@@ -168,6 +172,7 @@ def _build_window_spec(
 
 
 def _print_resolved_span(schedule: InjectionSchedule, prompt_length: int) -> None:
+    """Render the resolved span so users see the inclusive token indices."""
     span = schedule.resolved_span(prompt_length)
     if span is None:
         if schedule.generated_only:
@@ -191,12 +196,15 @@ def _print_resolved_span(schedule: InjectionSchedule, prompt_length: int) -> Non
         gen_origin = schedule.prompt_length if schedule.prompt_length is not None else prompt_length
         notes.append(f"generated-only (>= index {gen_origin})")
     note_suffix = f" [{' | '.join(notes)}]" if notes else ""
-    console.print(f"[cyan]Resolved token span:[/cyan] {span_start}..{span_end}{note_suffix}")
+    console.print(
+        f"[cyan]Resolved token span:[/cyan] [{span_start}..{span_end}] (inclusive){note_suffix}"
+    )
 
 
 def _should_disable_cache(
     model: PreTrainedModel | Any, schedule: InjectionSchedule, has_injection: bool
 ) -> bool:
+    """Return True when we must recompute the full sequence (disabling KV cache)."""
     # Only disable KV cache when an injection is active and the schedule requires it;
     # baseline generations keep cache-enabled windows for speed.
     disable_cache = has_injection and schedule.requires_full_sequence()
@@ -217,7 +225,10 @@ def _generate_text_with_schedule(
     strength: float | None,
     include_prompt: bool,
 ) -> str:
+    """Run generation while optionally installing an injection hook for the window."""
     use_injection = vector is not None and layer_index is not None and strength is not None
+    # Keep cache disabled whenever an injection hook is active (even if strength == 0.0)
+    # so span debugging runs share the same execution path as non-zero injections.
     disable_cache = _should_disable_cache(model, schedule, use_injection)
     sampling_model = cast(Any, model)
 
@@ -513,6 +524,10 @@ def run(
     )
 
     vector_tensor: torch.Tensor | None = None
+    if vector_path is None and strength != 0.0:
+        console.print(
+            "[yellow]Warning:[/yellow] --strength is ignored without --vector-path; running baseline."
+        )
     if vector_path is not None:
         prepared_vector = load_prepared_vector(
             vector_path,
@@ -561,8 +576,8 @@ def sweep(
         Path,
         typer.Option(..., help="Concept vector to inject during the sweep."),
     ],
-    layer_indices: list[int] = SWEEP_LAYER_OPTION,
-    strengths: list[float] = SWEEP_STRENGTH_OPTION,
+    layer_indices: Annotated[list[int], SWEEP_LAYER_OPTION] = [],
+    strengths: Annotated[list[float], SWEEP_STRENGTH_OPTION] = [],
     token_index: Annotated[
         int | None,
         typer.Option(help="Token index for single-token injection (omit for default behavior)."),
@@ -614,7 +629,11 @@ def sweep(
         typer.Option(help="CSV destination for sweep results."),
     ] = Path("sweeps/latest.csv"),
 ) -> None:
-    """Sweep layer/strength combinations and log outputs to CSV."""
+    """Sweep layer/strength combinations and log outputs to CSV.
+
+    The first row always captures the baseline text (layer_index=None, strength=None) so callers
+    can diff every trial against an injection-free run.
+    """
 
     window_spec = _build_window_spec(
         start_index=start_index,
@@ -680,6 +699,7 @@ def sweep(
             include_prompt=include_prompt,
         )
 
+    # Baseline text always omits injection regardless of CLI strengths for clarity.
     baseline_text = _generate_text(layer_idx=None, strength_value=None)
 
     rows: list[dict[str, object]] = [

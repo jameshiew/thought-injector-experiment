@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+"""Baseline word lists backing the paper-style capture in DESIGN.md."""
+
 from pathlib import Path
 
 import typer

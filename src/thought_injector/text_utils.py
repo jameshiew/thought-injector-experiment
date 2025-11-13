@@ -15,7 +15,7 @@ from thought_injector.spans import AnchorError, locate_end_anchor, locate_start_
 
 @dataclass(frozen=True)
 class WindowSpec:
-    """Declarative description of how CLI flags shape an injection window."""
+    """Declarative description of how CLI flags shape an injection window from raw prompt text."""
 
     start_index: int | None = None
     end_index: int | None = None
@@ -29,6 +29,14 @@ class WindowSpec:
             raise typer.BadParameter("--start-occurrence must be >= 1.")
         if self.end_occurrence <= 0:
             raise typer.BadParameter("--end-occurrence must be >= 1.")
+        if self.start_index is not None and self.start_match is not None:
+            raise typer.BadParameter(
+                "--start-index and --start-match are mutually exclusive; choose one."
+            )
+        if self.end_index is not None and self.end_match is not None:
+            raise typer.BadParameter(
+                "--end-index and --end-match are mutually exclusive; choose one."
+            )
         if self.start_match is None and self.start_occurrence != 1:
             raise typer.BadParameter("--start-occurrence requires --start-match.")
         if self.end_match is None and self.end_occurrence != 1:
@@ -37,6 +45,7 @@ class WindowSpec:
     def resolve(
         self, tokenizer: PreTrainedTokenizerBase, prompt: str
     ) -> tuple[int | None, int | None]:
+        """Return (start_idx, end_idx) token indices; end_idx=-1 becomes seq_len-1 downstream."""
         start_idx = self._resolve_start(tokenizer, prompt)
         end_idx = self._resolve_end(tokenizer, prompt)
         if start_idx is not None and end_idx is None:
@@ -53,7 +62,7 @@ class WindowSpec:
         generated_only: bool,
         prompt_length: int,
     ) -> InjectionSchedule:
-        """Resolve the window spec and materialize an InjectionSchedule."""
+        """Resolve char-based anchors into token indices and build an InjectionSchedule."""
 
         window_start, window_end = self.resolve(tokenizer, prompt)
         return InjectionSchedule(
@@ -87,6 +96,8 @@ class WindowSpec:
 
 
 def flatten_first_sequence(values: Any) -> list[Any]:
+    """Extract the leading sequence from HF-style return values or torch tensors."""
+    # Handles both real Hugging Face encoders and the lightweight fakes in unit tests.
     if values is None:
         return []
     if isinstance(values, torch.Tensor):
@@ -114,6 +125,8 @@ def flatten_first_sequence(values: Any) -> list[Any]:
 def _offset_pairs_from_mapping(
     offsets: torch.Tensor | list[Any] | tuple[Any, ...] | None,
 ) -> list[tuple[int, int]] | None:
+    """Normalize offset_mapping outputs across fast tokenizers and test doubles."""
+    # Fast tokenizers return nested tensors; mocks often return raw lists.
     if offsets is None:
         return None
     flattened_offsets = flatten_first_sequence(offsets)
@@ -134,6 +147,8 @@ def _offset_pairs_from_mapping(
 
 
 def _offset_pairs_from_encoding(encoding: BatchEncoding) -> list[tuple[int, int]] | None:
+    """Pull offset_mapping entries out of a BatchEncoding, even when nested."""
+    # Some tokenizers stash data under .data, others under the mapping directly.
     encoding_map = cast(Mapping[str, Any], encoding)
     offsets = cast(
         torch.Tensor | list[Any] | tuple[Any, ...] | None,
@@ -173,9 +188,10 @@ def _index_from_offsets(
 
 
 def _fallback_token_index(tokenizer: PreTrainedTokenizerBase, prompt: str, char_index: int) -> int:
+    """Approximate a token index via prefix re-tokenization with special tokens disabled."""
     prefix_end = min(char_index + 1, len(prompt))
     prefix = prompt[:prefix_end]
-    prefix_encoding: BatchEncoding = tokenizer(prefix, add_special_tokens=True)
+    prefix_encoding: BatchEncoding = tokenizer(prefix, add_special_tokens=False)
     prefix_data = cast(dict[str, Any], getattr(prefix_encoding, "data", dict(prefix_encoding)))
     prefix_tokens = cast(
         torch.Tensor | list[Any] | tuple[Any, ...] | None, prefix_data.get("input_ids")
@@ -195,7 +211,7 @@ def _fallback_token_index(tokenizer: PreTrainedTokenizerBase, prompt: str, char_
 
 
 def token_index_from_char(tokenizer: PreTrainedTokenizerBase, prompt: str, char_index: int) -> int:
-    """Two-phase lookup: prefer offset mappings, then fall back to prefix re-tokenization."""
+    """Resolve a character offset to a token index via offsets, then prefix re-tokenization."""
 
     encoding: BatchEncoding = tokenizer(
         prompt,
@@ -230,6 +246,7 @@ def resolve_end_match_token_index(
 
 
 def diff_length(reference: str, candidate: str) -> int:
+    """Return the total number of characters that differ between two strings."""
     diff_total = 0
     for chunk in difflib.ndiff(reference, candidate):
         if not chunk:
