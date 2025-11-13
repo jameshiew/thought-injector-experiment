@@ -140,7 +140,7 @@ uv run thought-injector run \
 ### Demonstrated behavior shift
 
 On 2025-11-12 we captured `vectors/aquariums_word_pharia.safetensors` via `capture-word` and ran the two commands above (with `--strength 0.0` for the baseline, `--strength 0.8` for the injected case). The baseline transcript remained neutral, but the injected run immediately pivoted to “You have aquariums. Aquariums are where they keep their tanks.” when Trial 1 began. Both transcripts are archived under `experiments/pharia-1-control/readme_windowed/` (see `baseline_layer20_window.txt` and `injection_aquariums_layer20_strength0p8.txt`) if you want to diff them later. Repeating the process with fresh seeds reliably reproduces the same “aquariums” bias, so this is now our canonical sanity check that the hook + windowing stack is working.
-Windowed replays from 2025-11-13 (baseline + injected) live under `experiments/pharia-1-control/readme_windowed/` and use the new `--end-match "Trial 2:"` guard so only the first trial is steered.
+Windowed replays from 2025-11-13 (baseline + injected) live under `experiments/pharia-1-control/readme_windowed/` and use the new `--end-match "Trial 2:"` guard so only the first trial is steered. Matching captures for `models/phi-4-mini-instruct` and `models/llama-3.1-8b-instruct` now live under `experiments/phi-4-mini-instruct/readme_windowed/` and `experiments/llama-3.1-8b-instruct/readme_windowed/` respectively; both use the same prompt/window so you can compare how different checkpoints react to identical “aquariums” injections (phi-4-mini mostly refuses to acknowledge the span, while Llama 3.1-8B immediately chants “aquarium/tank” when strength 0.8 kicks in).
 
 Both commands above window the injection schedule from the start of “Trial 1:” up to (but not including) “Trial 2:”, so only the Trial 1 answer is influenced. When the `--end-match` text is absent from the raw prompt, the CLI streams the generated text until it encounters the substring (or emits a warning if it never does) and only injects during that first span.
 
@@ -175,6 +175,8 @@ All experiment artifacts are partitioned by model under `experiments/<model_name
 - `experiments/pharia-1-control/readme_windowed/` — baseline vs. injected sanity checks that mirror the README flow.
 - `experiments/pharia-1-control/loud/` / `honesty/` — concept-specific sweeps and their CSV summaries.
 - `experiments/<new-model>/.gitkeep` — placeholder so Git tracks the directory before you start logging.
+- `experiments/phi-4-mini-instruct/readme_windowed/` — baseline vs. injected “aquariums” trials showing that phi-4-mini largely keeps refusing to detect the span even under strength 0.8.
+- `experiments/llama-3.1-8b-instruct/readme_windowed/` — Llama 3.1-8B baseline/injection transcripts where the same vector turns Trial 1 into an “aquarium/tank” stream at strength 0.8.
 
 See `experiments/README.md` for a quick reference on naming conventions when adding new runs.
 

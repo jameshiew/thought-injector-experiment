@@ -1,3 +1,9 @@
+# 2025-11-13 - multi-model README transcripts
+
+- Recaptured `aquariums` vectors for `models/phi-4-mini-instruct` (`vectors/aquariums_word_phi4mini.safetensors`, baseline count 50) and `models/llama-3.1-8b-instruct` (`vectors/aquariums_word_llama31_8b.safetensors`, baseline count 30) via `capture-word --layer-index 20 --token-index -1 --dtype auto` so we could replay the README scenario on each checkpoint.
+- Logged baseline/injection runs for both models using `prompts/templates/injected_thought.txt`, `--start-match "Trial 1:"`, `--end-match "Trial 2:"`, and strengths `0.0` vs. `0.8` (normalized). Saved outputs under `experiments/phi-4-mini-instruct/readme_windowed/` and `experiments/llama-3.1-8b-instruct/readme_windowed/` so multi-model diffs sit next to the Pharia reference transcripts.
+- README’s experiment section now points at those directories and summarizes the observed behaviors (phi-4-mini keeps declining, Llama 3.1-8B immediately spams “aquarium/tank”).
+
 # 2025-11-13 - prompt + experiment reorg
 
 - Split `prompts/` into `templates/` (runtime scaffolds) and `datasets/minimal_pairs/` (capture corpora) so new prompts stop piling into the root; updated README/AGENTS plus vector metadata so every doc now points to the new paths.
