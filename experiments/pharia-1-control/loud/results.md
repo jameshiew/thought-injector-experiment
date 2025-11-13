@@ -28,7 +28,7 @@ The uppercase vector honors the requested word casing, but it mostly excites the
 
 ## Sweep summary
 
-| Vector | Layer | Strength window | Behavior summary (see `experiments/loud/**`) |
+| Vector | Layer | Strength window | Behavior summary (see `experiments/pharia-1-control/loud/**`) |
 | --- | --- | --- | --- |
 | `loud_word_pharia.safetensors` | 20 | 0.05–0.80 | Indistinguishable from the baseline apple/banana/tree script. |
 | `loud_word_pharia.safetensors` | 20 | ≥1.0 | Decoder collapses into repeating `L`/`LOL` strings. |
@@ -47,7 +47,7 @@ All injections above were windowed with `--start-match "Trial 1:" --end-match "T
 ```
 uv run thought-injector run \
   -m models/pharia-1-control \
-  --prompt "$(cat prompts/injected_thought.txt)" \
+  --prompt "$(cat prompts/templates/injected_thought.txt)" \
   --vector-path vectors/loud_lower_word_pharia.safetensors \
   --layer-index 20 \
   --strength 0.31 \
@@ -60,4 +60,4 @@ uv run thought-injector run \
   --seed 0
 ```
 
-The resulting transcript is stored in `experiments/loud/lower/layer20_strength0p31_windowed.txt` (seed 0) and `experiments/loud/lower/layer20_strength0p31_seed1_windowed.txt`, both of which show the hook switching off once `Trial 2:` appears.
+The resulting transcript is stored in `experiments/pharia-1-control/loud/lower/layer20_strength0p31_windowed.txt` (seed 0) and `experiments/pharia-1-control/loud/lower/layer20_strength0p31_seed1_windowed.txt`, both of which show the hook switching off once `Trial 2:` appears.

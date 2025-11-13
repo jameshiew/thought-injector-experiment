@@ -36,7 +36,7 @@ Then run:
 ```bash
 uv run thought-injector capture-pairs \
   -m models/pharia-1-control \
-  --pairs-path prompts/examples/dog_vs_person.jsonl \
+  --pairs-path prompts/datasets/minimal_pairs/dog_vs_person.jsonl \
   --layer-index 20 \
   --token-index -1 \
   --max-pairs 10 \
@@ -45,11 +45,16 @@ uv run thought-injector capture-pairs \
 
 `capture-pairs` accepts `.json`, `.jsonl`/`.ndjson`, `.csv`, or `.tsv`. The negative column can also be named `baseline` or `control`. Use `--max-pairs` to cap how many rows are consumed (handy while iterating). Metadata now records `pairs_source`, the pair count, and an inline copy of the prompts so you can audit which minimal pairs produced a vector months later.
 
-Sample datasets live in `prompts/examples/` so you can test the workflow immediately:
+Sample datasets now live under `prompts/datasets/minimal_pairs/` so you can test the workflow immediately:
 
-- `prompts/examples/dog_vs_person.jsonl` — swaps `dog` for a human/neutral agent across 10 short scenes.
-- `prompts/examples/loud_vs_soft.jsonl` — pairs loud descriptors with quiet/soft counterparts so you isolate loudness.
-- `prompts/examples/warm_vs_cool.jsonl` — contrasts warm vs. cool/cold framings across household contexts.
+- `prompts/datasets/minimal_pairs/dog_vs_person.jsonl` — swaps `dog` for a human/neutral agent across 10 short scenes.
+- `prompts/datasets/minimal_pairs/loud_vs_soft.jsonl` — pairs loud descriptors with quiet/soft counterparts so you isolate loudness.
+- `prompts/datasets/minimal_pairs/warm_vs_cool.jsonl` — contrasts warm vs. cool/cold framings across household contexts.
+
+The `prompts/` tree is organized so templates and corpora stay separated:
+
+- `prompts/templates/` — reusable prompt scaffolds for capture/run flows (e.g., the injected-thought dialogue, descriptive variants).
+- `prompts/datasets/minimal_pairs/` — ready-to-edit corpora for concept captures. Add new folders next to `minimal_pairs/` if you need other dataset types (contrastive word lists, ablation suites, etc.).
 
 Need a ready-to-go concept vector for smoke tests? We version the outputs of those corpora under `vectors/`:
 
@@ -93,14 +98,14 @@ uv run thought-injector capture \
 
 ## 2. Baseline vs. injection runs
 
-The canonical “injected thought” prompt from the paper lives at `prompts/injected_thought.txt`. Load it with `$(cat ...)` so you keep the blank line before `Trial 1`.
+The canonical “injected thought” prompt from the paper lives at `prompts/templates/injected_thought.txt`. Load it with `$(cat ...)` so you keep the blank line before `Trial 1`.
 
 ### Baseline (no injection)
 
 ```bash
 uv run thought-injector run \
   -m models/pharia-1-control \
-  --prompt "$(cat prompts/injected_thought.txt)" \
+  --prompt "$(cat prompts/templates/injected_thought.txt)" \
   --layer-index 20 \
   --strength 0.0 \
   --start-match "Trial 1:" \
@@ -119,7 +124,7 @@ Including the window in the baseline run ensures we are testing the exact Trial�
 ```bash
 uv run thought-injector run \
   -m models/pharia-1-control \
-  --prompt "$(cat prompts/injected_thought.txt)" \
+  --prompt "$(cat prompts/templates/injected_thought.txt)" \
   --vector-path vectors/aquariums_word_pharia.safetensors \
   --layer-index 20 \
   --strength 0.8 \
@@ -134,8 +139,8 @@ uv run thought-injector run \
 
 ### Demonstrated behavior shift
 
-On 2025-11-12 we captured `vectors/aquariums_word_pharia.safetensors` via `capture-word` and ran the two commands above (with `--strength 0.0` for the baseline, `--strength 0.8` for the injected case). The baseline transcript remained neutral, but the injected run immediately pivoted to “You have aquariums. Aquariums are where they keep their tanks.” when Trial 1 began. Both transcripts are archived under `experiments/readme_windowed/` (see `baseline_layer20_window.txt` and `injection_aquariums_layer20_strength0p8.txt`) if you want to diff them later. Repeating the process with fresh seeds reliably reproduces the same “aquariums” bias, so this is now our canonical sanity check that the hook + windowing stack is working.
-Windowed replays from 2025-11-13 (baseline + injected) live under `experiments/readme_windowed/` and use the new `--end-match "Trial 2:"` guard so only the first trial is steered.
+On 2025-11-12 we captured `vectors/aquariums_word_pharia.safetensors` via `capture-word` and ran the two commands above (with `--strength 0.0` for the baseline, `--strength 0.8` for the injected case). The baseline transcript remained neutral, but the injected run immediately pivoted to “You have aquariums. Aquariums are where they keep their tanks.” when Trial 1 began. Both transcripts are archived under `experiments/pharia-1-control/readme_windowed/` (see `baseline_layer20_window.txt` and `injection_aquariums_layer20_strength0p8.txt`) if you want to diff them later. Repeating the process with fresh seeds reliably reproduces the same “aquariums” bias, so this is now our canonical sanity check that the hook + windowing stack is working.
+Windowed replays from 2025-11-13 (baseline + injected) live under `experiments/pharia-1-control/readme_windowed/` and use the new `--end-match "Trial 2:"` guard so only the first trial is steered.
 
 Both commands above window the injection schedule from the start of “Trial 1:” up to (but not including) “Trial 2:”, so only the Trial 1 answer is influenced. When the `--end-match` text is absent from the raw prompt, the CLI streams the generated text until it encounters the substring (or emits a warning if it never does) and only injects during that first span.
 
@@ -144,13 +149,13 @@ Both commands above window the injection schedule from the start of “Trial 1
 - Captured both `vectors/loud_word_pharia.safetensors` (requested uppercase casing) and `vectors/loud_lower_word_pharia.safetensors` via `capture-word --layer-index 20 --token-index -1 --baseline-count 100`.
 - Injecting the uppercase vector at any reasonable strength keeps the transcript identical to baseline until the decoder collapses into repeating `LLOLOL` strings (≥1.0 strength), so it does not yield a semantic loudness cue.
 - The lowercase vector produces the first detectable-but-subtle “loud” mention at layer 20 with strengths in the 0.31–0.32 band using `--start-match "Trial 1:" --end-match "Trial 2:"`, `--normalize`, and `--scale-by 1.0`. Trial 1 answers “The thought was about the word 'loud.'” while the control trial still reports “quiet,” and the CLI automatically turns the hook off once `Trial 2:` shows up in the transcript.
-- Strengths ≥0.40 (or injecting at layers 18/22) saturate the conversation—every trial shouts “loud” or degenerates into loops. Guidance + transcripts live in `experiments/loud/results.md` and the `experiments/loud/lower/` log files.
+- Strengths ≥0.40 (or injecting at layers 18/22) saturate the conversation—every trial shouts “loud” or degenerates into loops. Guidance + transcripts live in `experiments/pharia-1-control/loud/results.md` and the `experiments/pharia-1-control/loud/lower/` log files.
 - Recommended command:
 
   ```bash
   uv run thought-injector run \
     -m models/pharia-1-control \
-    --prompt "$(cat prompts/injected_thought.txt)" \
+    --prompt "$(cat prompts/templates/injected_thought.txt)" \
     --vector-path vectors/loud_lower_word_pharia.safetensors \
     --layer-index 20 \
     --strength 0.31 \
@@ -160,8 +165,18 @@ Both commands above window the injection schedule from the start of “Trial 1
     --temperature 0.0 \
     --normalize --scale-by 1.0 \
     --dtype auto \
-    --seed 0
+  --seed 0
   ```
+
+### Experiment log layout
+
+All experiment artifacts are partitioned by model under `experiments/<model_name>/`. That keeps Pharia-specific sweeps separated from, say, Phi-4 or Llama logs and makes it obvious which checkpoint produced each transcript. Examples:
+
+- `experiments/pharia-1-control/readme_windowed/` — baseline vs. injected sanity checks that mirror the README flow.
+- `experiments/pharia-1-control/loud/` / `honesty/` — concept-specific sweeps and their CSV summaries.
+- `experiments/<new-model>/.gitkeep` — placeholder so Git tracks the directory before you start logging.
+
+See `experiments/README.md` for a quick reference on naming conventions when adding new runs.
 
 Key switches:
 
@@ -185,7 +200,7 @@ Quickly explore layer × strength grids and log outputs/diff stats to CSV:
 ```bash
 uv run thought-injector sweep \
   -m models/pharia-1-control \
-  --prompt "$(cat prompts/injected_thought.txt)" \
+  --prompt "$(cat prompts/templates/injected_thought.txt)" \
   --vector-path vectors/aquariums_word_pharia.safetensors \
   --layer-index 12 --layer-index 16 --layer-index 20 --layer-index 24 --layer-index 25 \
   --strength 0.3 --strength 0.6 --strength 0.9 --strength 1.2 \
@@ -214,7 +229,7 @@ uv run thought-injector inspect-vector vectors/aquariums_word_pharia.safetensors
 - Transformers 4.57.1 currently requires `huggingface-hub<1.0`, so we pin the client to the newest sub-1.0 release (`huggingface-hub>=0.36.0,<1.0`). If you yank that constraint you’ll get resolver failures until Transformers 5.0 lifts the cap.
 - The hook finder assumes Llama-style decoder stacks (exposed as `model.layers` or `model.transformer.h`). Extending `_get_decoder_layers` is enough to support new architectures.
 - Set `TI_DEBUG_STRICT=1` (or any truthy value) to assert that the hooked residual stream tensors stay shape `[batch, tokens, hidden]` and that the hidden width matches your concept vector before every injection; the check runs inside `apply_injection` immediately after the `InjectionSchedule` mask resolves, so any dtype/shape mixups are caught before activations are modified.
-- Keep a copy of at least one successful injection transcript (for example, stash them under `experiments/readme_windowed/`) so you can confirm future code changes still recreate the same “aquariums” bias without retuning hyperparameters.
+- Keep a copy of at least one successful injection transcript (for example, stash them under `experiments/pharia-1-control/readme_windowed/`) so you can confirm future code changes still recreate the same “aquariums” bias without retuning hyperparameters.
 
 ## Development
 
