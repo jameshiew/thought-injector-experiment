@@ -8,7 +8,7 @@ fmt:
     uv run ruff format .
 
 dep-check:
-    uv run pip-audit
+    uv run uv-secure
 
 test:
     uv run pytest
