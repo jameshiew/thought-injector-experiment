@@ -25,6 +25,7 @@ dev = [
   "pip-audit>=2.9.0,<3.0",
   "pytest>=9.0.1,<10.0",
   "ruff>=0.14.4,<0.15",
+  "uv-secure>=0.17.0",
 ]
 
 [tool.basedpyright]
