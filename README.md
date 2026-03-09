@@ -1,5 +1,8 @@
 # thought-injector
 
+> ⚠️ This project is experimental and shared as-is.
+> Expect rough edges, vibe-coded logic, and unreviewed code — use at your own risk!
+
 Minimal tooling to reproduce the key concept-injection experiment from `DESIGN.md` with a local Hugging Face–format model (e.g., weights stored as `.safetensors`). Everything is wired through [`uv`](https://github.com/astral-sh/uv) so you can manage dependencies without touching global interpreters.
 
 ## Prereqs
@@ -17,7 +20,7 @@ The CLI entry point becomes available as `uv run thought-injector`.
 
 ## 1. Capture a concept vector
 
-`thought-injector` now includes a minimal-pair capture pipeline so vectors stay focused on the actual concept instead of the “please think about ___” instruction-following circuitry. We still ship the earlier word/baseline recipe plus the raw contrastive command for backwards compatibility. `--dtype auto` prefers `bfloat16` on GPUs that support it and falls back to `float16` elsewhere. Typer exposes CLI commands with hyphenated names (`capture-pairs`, `capture-word`, `inspect-vector`, etc.).
+`thought-injector` now includes a minimal-pair capture pipeline so vectors stay focused on the actual concept instead of the “please think about \_\_\_” instruction-following circuitry. We still ship the earlier word/baseline recipe plus the raw contrastive command for backwards compatibility. `--dtype auto` prefers `bfloat16` on GPUs that support it and falls back to `float16` elsewhere. Typer exposes CLI commands with hyphenated names (`capture-pairs`, `capture-word`, `inspect-vector`, etc.).
 
 ### Minimal-pair capture (recommended)
 
