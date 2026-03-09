@@ -10,6 +10,8 @@ on:
       - uv.lock
       - .github/workflows/dependencies.yml
   push:
+    branches:
+      - main
     paths:
       - pyproject.toml
       - uv.lock
